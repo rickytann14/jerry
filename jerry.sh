@@ -1331,7 +1331,11 @@ play_video() {
             add_to_history
             ;;
         *yncpla*) syncplay "$video_link" -- --force-media-title="${title}" >/dev/null 2>&1 ;;
-        vlc) vlc --play-and-exit --meta-title="${title}" "$video_link" >/dev/null 2>&1 & ;;
+        vlc)
+            vlc --play-and-exit --meta-title="${title}" "$video_link" >/dev/null 2>&1 &
+            vlc_pid=$!
+            wait $vlc_pid
+            ;;
         iina) iina --no-stdin --keep-running --mpv-force-media-title="${title}" "$video_link" >/dev/null 2>&1 & ;;
     esac
     if [ "$player" != "mpv" ] && [ "$player" != "mpv.exe" ]; then
