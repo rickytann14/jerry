@@ -1254,7 +1254,7 @@ get_manga_json() {
 #### MEDIA FUNCTIONS ####
 
 add_to_history() {
-    if [ -n "$percentage_progress" ] && [ "$percentage_progress" -gt 85 ]; then
+    if [ -n "$percentage_progress" ] && [ "$percentage_progress" -gt 25 ]; then
         if [ -z "$no_anilist" ]; then
             response=$(update_progress "$((progress + 1))" "$media_id" "$status")
             if printf "%s" "$response" | grep -q "errors"; then
