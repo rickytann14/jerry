@@ -472,7 +472,7 @@ get_anime_from_list() {
                 ;;
             *)
                 choice=$(printf "%s" "$anime_list" | launcher "Choose anime: " "3")
-                [ -z "$choice" ] && exit 1
+                [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
                 choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -f2)
@@ -879,7 +879,7 @@ update_chapter_from_list() {
     [ "$new_chapter_number" -gt "$chapters_total" ] && new_chapter_number=$chapters_total
     [ "$new_chapter_number" -lt 0 ] && new_chapter_number=0
 
-    if [ -z "$chapters_total" ]; then
+    if [ -z "$new_chapter_number" ]; then
         send_notification "No chapter number given"
         exit 1
     fi
@@ -1313,14 +1313,14 @@ play_video() {
             fi
             if [ -n "$subs_links" ]; then
                 send_notification "$title" "4000" "$images_cache_dir/$media_id.jpg" "$title"
-                if [ "$discord_presence" = "true" ]; then
+                if [ "$discord_presence" = "true" ] && [ -f "$presence_script_path" ]; then
                     eval "$presence_script_path" \"$player\" \"${title}\" \"${start_year}\" \"$((progress + 1))\" \"${video_link}\" \"${subs_links}\" ${opts} 2>&1 | tee $tmp_position
                 else
                     $player "$video_link" $opts "$subs_arg" "$subs_links" --force-media-title="$displayed_title" --msg-level=ffmpeg/demuxer=error 2>&1 | tee $tmp_position
                 fi
             else
                 send_notification "$title" "4000" "$images_cache_dir/$media_id.jpg" "$title"
-                if [ "$discord_presence" = "true" ]; then
+                if [ "$discord_presence" = "true" ] && [ -f "$presence_script_path" ]; then
                     eval "$presence_script_path" \"$player\" \"${title}\" \"${start_year}\" \"$((progress + 1))\" \"${video_link}\" \"\" ${opts} 2>&1 | tee $tmp_position
                 else
                     $player "$video_link" $opts --force-media-title="$displayed_title" --msg-level=ffmpeg/demuxer=error 2>&1 | tee $tmp_position
