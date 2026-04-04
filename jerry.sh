@@ -375,6 +375,7 @@ hdrezka_data_and_translation_id() {
 
 download_thumbnails() {
     printf "%s\n" "$1" | while read -r cover_url media_id title; do
+        [ -z "$cover_url" ] && continue
         curl -s -o "$images_cache_dir/$media_id.jpg" "$cover_url" &
         if [ "$use_external_menu" = true ]; then
             entry=/tmp/jerry/applications/"$media_id.desktop"
@@ -468,12 +469,6 @@ get_anime_from_list() {
                 [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
                 choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
-                media_id=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\.jpg@\1@p")
-                title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*) [0-9?|]* episodes.*@\1@p" | $sed -E 's|\\u.{4}|+|g')
-                [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
-                episodes_total=$(printf "%s" "$choice" | $sed -nE "s@.*[\| ]([0-9?]*) episodes.*@\1@p")
-                [ -z "$episodes_total" ] && episodes_total=9999
-                score=$(printf "%s" "$choice" | $sed -nE "s@.* episodes \[([0-9]*)\].*@\1@p")
                 ;;
             *)
                 choice=$(printf "%s" "$anime_list" | launcher "Choose anime: " "3")
@@ -551,7 +546,7 @@ get_airing_today() {
                     select_desktop_entry "" "Airing $day_label: " "$display_list"
                     [ -z "$choice" ] && exit 0
                     media_id=$(printf "%s" "$choice" | cut -f2)
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*) - Episode [0-9]*.*@\1@p") && ep_num=$(printf "%s" "$choice" | $sed -nE "s@.* - Episode ([0-9]*).*@\1@p")
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | $sed 's/ - Episode [0-9]*//') && ep_num=$(printf "%s" "$choice" | $sed -nE "s@.* - Episode ([0-9]*).*@\1@p")
                     ;;
                 *)
                     choice=$(printf "%s" "$display_list" | launcher "Airing $day_label: " "3")
@@ -607,7 +602,7 @@ get_recently_updated_manga() {
                     select_desktop_entry "" "Manga Updates (Page $api_page): " "$display_list"
                     [ -z "$choice" ] && exit 0
                     media_id=$(printf "%s" "$choice" | cut -f2)
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*)\t.*@\1@p")
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
                     ;;
                 *)
                     choice=$(printf "%s" "$display_list" | launcher "Manga Updates (Page $api_page): " "3")
@@ -669,10 +664,6 @@ search_anime_anilist() {
                 [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
                 choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
-                media_id=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\.jpg@\1@p")
-                title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*) [0-9?|]* episodes.*@\1@p")
-                episodes_total=$(printf "%s" "$choice" | $sed -nE "s@.*[\| ]([0-9?]*) episodes.*@\1@p")
-                [ -z "$episodes_total" ] && episodes_total=9999
                 ;;
             *)
                 choice=$(printf "%s" "$anime_list" | launcher "Choose anime: " "3")

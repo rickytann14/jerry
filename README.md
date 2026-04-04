@@ -126,7 +126,7 @@ Options:
     -h, --help
       Show this help message and exit
     -i, --image-preview
-      Allows image preveiw in fzf and rofi
+      Allows image preview in fzf and rofi
     -j, --json
       Outputs the json containing video links, subtitle links, referrers etc. to stdout
     -l, --language
