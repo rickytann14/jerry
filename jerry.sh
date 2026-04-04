@@ -59,6 +59,10 @@ usage() {
   Options:
     -c, --continue
       Continue watching from currently watching list (using the user's anilist account)
+    -t, --today
+      Show anime airing today from your watching list
+    -m, --manga-updates
+      Show recently updated manga (paginated)
     --dub
       Allows user to watch anime in dub
     -e, --edit
@@ -493,6 +497,133 @@ get_anime_from_list() {
         [ -z "$episodes_total" ] && episodes_total=9999
         score=$(printf "%s" "$choice" | $sed -nE "s@.* episodes \[([0-9]*)\].*@\1@p")
     fi
+}
+
+get_airing_today() {
+    case "$(uname -s)" in
+        Darwin*)
+            today_start=$(date -j -v0H -v0M -v0S +%s)
+            today_end=$(date -j -v23H -v59M -v59S +%s)
+            ;;
+        *)
+            today_start=$(date -d "today 00:00:00" +%s)
+            today_end=$(date -d "today 23:59:59" +%s)
+            ;;
+    esac
+    day_start=$today_start
+    day_end=$today_end
+    page=1
+    while true; do
+        day_label=$(date -d "@$day_start" "+%Y-%m-%d (%A)" 2>/dev/null || date -j -f "%s" "$day_start" "+%Y-%m-%d (%A)")
+        now=$(date +%s)
+        [ "$day_end" -gt "$now" ] && effective_end=$now || effective_end=$day_end
+        airing_list=$(curl -s -X POST "$anilist_base" \
+            -H 'Content-Type: application/json' \
+            -d "{\"query\":\"query(\$airingAt_greater:Int \$airingAt_lesser:Int){Page(perPage:50){airingSchedules(airingAt_greater:\$airingAt_greater airingAt_lesser:\$airingAt_lesser sort:TIME_DESC){airingAt episode media{id title{userPreferred}coverImage{extraLarge large}}}}}\",\"variables\":{\"airingAt_greater\":$day_start,\"airingAt_lesser\":$effective_end}}" \
+            | $sed 's/},{/\n/g' \
+            | $sed -nE 's@.*"airingAt":([0-9]*).*"episode":([0-9]*).*"id":([0-9]*).*"userPreferred":"([^"]*)".*"extraLarge":"([^"]*)".*@\5\t\3\t\4 - Episode \2@p' \
+            | $sed 's/\\\//\//g')
+        next_page=$((page + 1))
+        prev_page=$((page - 1))
+        display_list=$(printf "%s\n\t0\t<< Page $next_page" "$airing_list")
+        [ "$day_start" -lt "$today_start" ] && display_list=$(printf "%s\n\t-1\t>> Page $prev_page" "$display_list")
+        if [ "$use_external_menu" = true ]; then
+            case "$image_preview" in
+                true)
+                    download_thumbnails "$display_list" "1"
+                    select_desktop_entry "" "Airing $day_label: " "$display_list"
+                    [ -z "$choice" ] && exit 1
+                    media_id="$choice"
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$airing_list" | $sed -nE "s@.*\t$media_id\t(.*) - Episode [0-9]*.*@\1@p") && ep_num=$(printf "%s" "$airing_list" | $sed -nE "s@.*\t$media_id\t.* - Episode ([0-9]*).*@\1@p")
+                    ;;
+                *)
+                    tmp_list=$(printf "%s" "$display_list" | $sed -nE "s@(.*\.[jpneg]*)[[:space:]]*([0-9]*)[[:space:]]*(.*)@\3\t\2\t\1@p")
+                    choice=$(printf "%s" "$tmp_list" | launcher "Airing $day_label: " "1")
+                    [ -z "$choice" ] && exit 1
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | $sed 's/ - Episode [0-9]*//') && ep_num=$(printf "%s" "$choice" | $sed -nE "s@.* - Episode ([0-9]*)@\1@p")
+                    ;;
+            esac
+        else
+            case "$image_preview" in
+                true)
+                    download_thumbnails "$display_list" "2"
+                    select_desktop_entry "" "Airing $day_label: " "$display_list"
+                    [ -z "$choice" ] && exit 0
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*) - Episode [0-9]*.*@\1@p") && ep_num=$(printf "%s" "$choice" | $sed -nE "s@.* - Episode ([0-9]*).*@\1@p")
+                    ;;
+                *)
+                    choice=$(printf "%s" "$display_list" | launcher "Airing $day_label: " "3")
+                    [ -z "$choice" ] && exit 0
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | $sed 's/ - Episode [0-9]*//') && ep_num=$(printf "%s" "$choice" | $sed -nE "s@.* - Episode ([0-9]*)@\1@p")
+                    ;;
+            esac
+        fi
+        [ "$media_id" = "0" ] && day_start=$((day_start - 86400)) && day_end=$((day_end - 86400)) && page=$((page + 1)) && continue
+        [ "$media_id" = "-1" ] && day_start=$((day_start + 86400)) && day_end=$((day_end + 86400)) && page=$((page - 1)) && continue
+        [ -z "$media_id" ] && exit 0
+        break
+    done
+    [ -n "$ep_num" ] && progress=$((ep_num - 1)) || progress=0
+    episodes_total=9999
+}
+
+get_recently_updated_manga() {
+    api_page=1
+    while true; do
+        manga_updates=$(curl -s -X POST "$anilist_base" \
+            -H 'Content-Type: application/json' \
+            -d "{\"query\":\"query(\$page:Int){Page(perPage:50 page:\$page){media(type:MANGA sort:UPDATED_AT_DESC isAdult:false){id title{userPreferred}coverImage{extraLarge}updatedAt chapters}}}\",\"variables\":{\"page\":$api_page}}" \
+            | $sed 's/},{/\n/g' \
+            | $sed -nE 's@.*"id":([0-9]*).*"userPreferred":"([^"]*)".*"extraLarge":"([^"]*)".*"updatedAt":([0-9]*).*"chapters":([^,}]*).*@\3\t\1\t\2@p' \
+            | $sed 's/\\\//\//g')
+        next_page=$((api_page + 1))
+        prev_page=$((api_page - 1))
+        display_list=$(printf "%s\n\t0\t<< Page $next_page (Older)" "$manga_updates")
+        [ "$api_page" -gt 1 ] && display_list=$(printf "%s\n\t-1\t>> Page $prev_page (Newer)" "$display_list")
+        if [ "$use_external_menu" = true ]; then
+            case "$image_preview" in
+                true)
+                    download_thumbnails "$display_list" "1"
+                    select_desktop_entry "" "Manga Updates (Page $api_page): " "$display_list"
+                    [ -z "$choice" ] && exit 1
+                    media_id="$choice"
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$manga_updates" | $sed -nE "s@.*\t$media_id\t(.*)@\1@p")
+                    ;;
+                *)
+                    tmp_list=$(printf "%s" "$display_list" | $sed -nE "s@(.*\.[jpneg]*)[[:space:]]*([0-9]*)[[:space:]]*(.*)@\3\t\2\t\1@p")
+                    choice=$(printf "%s" "$tmp_list" | launcher "Manga Updates (Page $api_page): " "1")
+                    [ -z "$choice" ] && exit 1
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
+                    ;;
+            esac
+        else
+            case "$image_preview" in
+                true)
+                    download_thumbnails "$display_list" "2"
+                    select_desktop_entry "" "Manga Updates (Page $api_page): " "$display_list"
+                    [ -z "$choice" ] && exit 0
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | $sed -nE "s@[[:space:]]*(.*)\t.*@\1@p")
+                    ;;
+                *)
+                    choice=$(printf "%s" "$display_list" | launcher "Manga Updates (Page $api_page): " "3")
+                    [ -z "$choice" ] && exit 0
+                    media_id=$(printf "%s" "$choice" | cut -f2)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
+                    ;;
+            esac
+        fi
+        [ "$media_id" = "0" ] && api_page=$((api_page + 1)) && continue
+        [ "$media_id" = "-1" ] && api_page=$((api_page - 1)) && continue
+        [ -z "$media_id" ] && exit 0
+        break
+    done
+    progress=0
+    chapters_total=9999
 }
 
 search_anime_anilist() {
@@ -1375,7 +1506,7 @@ main() {
             exit 1
         fi
         [ -n "$query" ] && mode_choice="Watch New Anime"
-        [ -z "$mode_choice" ] && mode_choice=$(printf "Watch Anime\nRead Manga\nUpdate (Episodes, Status, Score)\nInfo\nWatch New Anime\nRead New Manga" | launcher "Choose an option: ")
+        [ -z "$mode_choice" ] && mode_choice=$(printf "Watch Anime\nRead Manga\nUpdate (Episodes, Status, Score)\nInfo\nWatch New Anime\nRead New Manga\nAiring Today (Anime)\nRecently Updated (Manga)" | launcher "Choose an option: ")
     else
         # TODO: implement manga stuff for no_anilist
         [ -n "$query" ] && mode_choice="Watch Anime"
@@ -1427,6 +1558,16 @@ main() {
             [ "$json_output" = true ] || send_notification "Disclaimer" "5000" "" "You need to complete the 1st chapter to update your progress"
             binge "MANGA"
             ;;
+        "Airing Today (Anime)")
+            get_airing_today
+            [ -z "$media_id" ] && exit 1
+            binge "ANIME"
+            ;;
+        "Recently Updated (Manga)")
+            get_recently_updated_manga
+            [ -z "$media_id" ] && exit 1
+            binge "MANGA"
+            ;;
         "Resume from History")
             history_choice=$($sed -n "1h;1!{x;H;};\${g;p;}" "$history_file" 2>/dev/null | nl -w 1 | nth "Choose an entry: ")
             media_id=$(printf "%s" "$history_choice" | cut -f1)
@@ -1452,6 +1593,8 @@ while [ $# -gt 0 ]; do
             break
             ;;
         -c | --continue) mode_choice="Watch Anime" && shift ;;
+        -t | --today) mode_choice="Airing Today (Anime)" && shift ;;
+        -m | --manga-updates) mode_choice="Recently Updated (Manga)" && shift ;;
         --clear-history | --delete-history)
             while true; do
                 printf "This will delete your jerry history. Are you sure? [Y/n] "
