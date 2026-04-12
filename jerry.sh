@@ -355,7 +355,6 @@ nth() {
     stdin=$(cat -)
     [ -z "$stdin" ] && return 1
     prompt="$1"
-    [ $# -ne 1 ] && shift
     line=$(printf "%s" "$stdin" | $sed -nE "s@^([0-9]*)[[:space:]]*[0-9]*[[:space:]]*([0-9/]*)[[:space:]]*[0-9:]*[[:space:]]*(.*)@\1\t\3 - Episode \2@p" | tr '\t' ' ' | launcher "$prompt" | cut -d\  -f1)
     [ -n "$line" ] && printf "%s" "$stdin" | $sed -nE "s@^$line\t(.*)@\1@p" || exit 1
 }
@@ -473,7 +472,7 @@ get_anime_from_list() {
                 select_desktop_entry "" "Choose anime: " "$anime_list"
                 [ -z "$choice" ] && exit 1
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -d\  -f1)
                 title=$(printf "%s" "$choice" | $sed -nE "s@$media_id (.*) [0-9?|]* episodes.*@\1@p" | $sed -E 's|\\u.{4}|+|g')
                 [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
@@ -486,7 +485,7 @@ get_anime_from_list() {
                 choice=$(printf "%s" "$tmp_anime_list" | launcher "Choose anime: " "1")
                 [ -z "$choice" ] && exit 1
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -f2)
                 title=$(printf "%s" "$choice" | $sed -nE "s@(.*) [0-9?|]* episodes.*@\1@p" | $sed -E 's|\\u.{4}|+|g')
                 [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
@@ -502,13 +501,13 @@ get_anime_from_list() {
                 select_desktop_entry "" "Choose anime: " "$anime_list"
                 [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 ;;
             *)
                 choice=$(printf "%s" "$anime_list" | launcher "Choose anime: " "3")
                 [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -f2)
                 title=$(printf "%s" "$choice" | $sed -nE "s@.*$media_id\t(.*) [0-9?|]* episodes.*@\1@p" | $sed -E 's|\\u.{4}|+|g')
                 [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
@@ -672,7 +671,7 @@ search_anime_anilist() {
                 select_desktop_entry "" "Choose anime: " "$anime_list"
                 [ -z "$choice" ] && exit 1
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -d\  -f1)
                 title=$(printf "%s" "$choice" | $sed -nE "s@$media_id (.*) [0-9?]* episodes.*@\1@p")
                 episodes_total=$(printf "%s" "$choice" | $sed -nE "s@.*[\| ]([0-9?]*) episodes.*@\1@p")
@@ -682,7 +681,7 @@ search_anime_anilist() {
                 tmp_anime_list=$(printf "%s" "$anime_list" | $sed -nE "s@(.*\.[jpneg]*)[[:space:]]*([0-9]*)[[:space:]]*(.*)@\3\t\2\t\1@p")
                 choice=$(printf "%s" "$tmp_anime_list" | launcher "Choose anime: " "1")
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -f2)
                 title=$(printf "%s" "$choice" | $sed -nE "s@(.*) [0-9?|]* episodes.*@\1@p")
                 [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
@@ -697,12 +696,12 @@ search_anime_anilist() {
                 select_desktop_entry "" "Choose anime: " "$anime_list"
                 [ -z "$choice" ] && exit 0
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 ;;
             *)
                 choice=$(printf "%s" "$anime_list" | launcher "Choose anime: " "3")
                 start_year=$(printf "%s" "$choice" | $sed -nE "s@.*\(([0-9?]{4})\).*@\1@p")
-                choice=$(printf "%s" "$choice" | $sed -nE "s@\([0-9?]{4}\)@ @p") # remove year from the title
+                choice=$(printf "%s" "$choice" | $sed -E "s@\([0-9?]{4}\)@ @") # remove year from the title
                 media_id=$(printf "%s" "$choice" | cut -f2)
                 title=$(printf "%s" "$choice" | $sed -nE "s@.*$media_id\t(.*) [0-9?|]* episodes.*@\1@p")
                 [ -z "$progress" ] && progress=$(printf "%s" "$choice" | $sed -nE "s@.* ([0-9]*)\|[0-9?]* episodes.*@\1@p")
@@ -778,13 +777,12 @@ update_episode_from_list() {
     else
         new_episode_number=$(printf "" | launcher "Enter a new episode number: ")
     fi
-    [ "$new_episode_number" -gt "$episodes_total" ] && new_episode_number=$episodes_total
-    [ "$new_episode_number" -lt 0 ] && new_episode_number=0
-
     if [ -z "$new_episode_number" ]; then
         send_notification "No episode number given"
         exit 1
     fi
+    [ "$new_episode_number" -gt "$episodes_total" ] && new_episode_number=$episodes_total
+    [ "$new_episode_number" -lt 0 ] && new_episode_number=0
 
     send_notification "Updating progress for $title..."
     [ "$new_episode_number" -eq "$episodes_total" ] && status="COMPLETED" || status="CURRENT"
@@ -910,13 +908,12 @@ update_chapter_from_list() {
     else
         new_chapter_number=$(printf "" | launcher "Enter a new chapters read number: ")
     fi
-    [ "$new_chapter_number" -gt "$chapters_total" ] && new_chapter_number=$chapters_total
-    [ "$new_chapter_number" -lt 0 ] && new_chapter_number=0
-
     if [ -z "$new_chapter_number" ]; then
         send_notification "No chapter number given"
         exit 1
     fi
+    [ "$new_chapter_number" -gt "$chapters_total" ] && new_chapter_number=$chapters_total
+    [ "$new_chapter_number" -lt 0 ] && new_chapter_number=0
 
     send_notification "Updating progress for $title..."
     [ "$new_chapter_number" -eq "$chapters_total" ] && status="COMPLETED" || status="CURRENT"
@@ -1113,15 +1110,19 @@ extract_from_json() {
             links=$(cat "$cache_dir"/* | sed 's|^Mp4-||g;/http/!d' | sort -g -r -s)
             if [ "$json_output" = true ]; then
                 printf '{\n'
-                for file in $cache_dir/*; do
-                    if [ -s "$file" ]; then
-                        provider=$(basename "$file")
-                        printf '  "%s": {\n' "provider_$provider"
-                        cat $file | while read -r quality url; do
-                            printf '    "%s": "%s",\n' "$quality" "${url#>}"
-                        done
-                        [ "$provider" = "5" ] && printf '  }\n' || printf '  },\n'
-                    fi
+                # collect non-empty provider files to know which is last
+                _json_files=""
+                for _f in "$cache_dir"/*; do
+                    [ -s "$_f" ] && _json_files="$_json_files $_f"
+                done
+                _last_file=$(printf "%s" "$_json_files" | tr ' ' '\n' | tail -1)
+                for _f in $_json_files; do
+                    _prov_num=$(basename "$_f")
+                    printf '  "%s": {\n' "provider_$_prov_num"
+                    while read -r quality url; do
+                        printf '    "%s": "%s",\n' "$quality" "${url#>}"
+                    done < "$_f"
+                    [ "$_f" = "$_last_file" ] && printf '  }\n' || printf '  },\n'
                 done
                 printf '}\n'
                 exit 0
@@ -1518,9 +1519,9 @@ binge() {
         if [ "$1" = "ANIME" ]; then
             watch_anime_choice
             [ -z "$percentage_progress" ] || [ "$percentage_progress" -lt 85 ] && break
-            [ $((progress + 1)) = "$episodes_total" ] && break
+            [ $((progress + 1)) -eq "$episodes_total" ] && break
             [ -n "$range_end" ] && [ "$((progress + 1))" -ge "$range_end" ] && break
-            if [ $player != mpv ] && [ $player != mpv.exe ]; then
+            if [ "$player" != "mpv" ] && [ "$player" != "mpv.exe" ]; then
                 send_notification "Please only select Yes if you have finished watching the episode" "5000"
                 binge_watching=$(printf "Yes\nNo" | launcher "Do you want to keep binge watching? [Y/n] ")
 
@@ -1532,7 +1533,7 @@ binge() {
             resume_from=""
         elif [ "$1" = "MANGA" ]; then
             read_manga_choice
-            [ $((progress + 1)) = "$chapters_total" ] && break
+            [ $((progress + 1)) -eq "$chapters_total" ] && break
             case $completed_chapter in
                 [Nn]*) break ;;
             esac
@@ -1652,7 +1653,7 @@ while [ $# -gt 0 ]; do
                         exit 0
                         ;;
                     [Nn]*)
-                        return 1
+                        exit 1
                         ;;
                     *) echo "Please answer yes or no." ;;
                 esac
