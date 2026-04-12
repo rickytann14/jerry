@@ -1486,16 +1486,36 @@ read_manga() {
 }
 
 watch_anime_choice() {
+    _newly_selected=""
     if [ -z "$media_id" ] && [ -z "$no_anilist" ]; then
         get_anime_from_list "CURRENT|REPEATING"
+        _newly_selected=1
     elif [ -z "$media_id" ]; then
         [ -z "$query" ] && get_input "Search anime: "
         [ -z "$query" ] && exit 1
         search_anime_anilist "$query"
+        # search_anime_anilist already handles episode picking for no_anilist mode
     fi
     if [ -z "$media_id" ] || [ -z "$title" ] || [ -z "$episodes_total" ]; then
         send_notification "Jerry" "" "" "Error, no anime found"
         exit 1
+    fi
+    # Let the user pick the starting episode on first selection.
+    # Skip when: -n/--number was used, binge auto-advance (media_id was already set), or no_anilist (handled in search_anime_anilist).
+    if [ -n "$_newly_selected" ] && [ -z "$using_number" ] && [ -z "$no_anilist" ]; then
+        _default_ep=$((progress + 1))
+        [ "$_default_ep" -lt 1 ] && _default_ep=1
+        [ "$_default_ep" -gt "$episodes_total" ] && _default_ep=$episodes_total
+        if [ "$use_external_menu" = false ]; then
+            printf "Start from episode [%d/%s] (press Enter for default): " "$_default_ep" "$episodes_total" >&2
+            read -r _ep_input
+            if [ -n "$_ep_input" ]; then
+                progress=$((_ep_input - 1))
+            fi
+        else
+            _ep_input=$(printf "" | launcher "Start from episode (1-${episodes_total}, default: ${_default_ep}): ")
+            [ -n "$_ep_input" ] && progress=$((_ep_input - 1))
+        fi
     fi
     send_notification "Loading" "3000" "$images_cache_dir/$media_id.jpg" "$title"
     watch_anime
