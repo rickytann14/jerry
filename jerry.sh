@@ -71,6 +71,10 @@ usage() {
       Display currently watching anime in Discord Rich Presence (jerrydiscordpresence.py is required for this, check the wiki for instructions on how to install it)
     -h, --help
       Show this help message and exit
+    -g, --gui
+      Use a native GTK3 GUI for selecting anime/manga (requires python3-gi).
+      Enables full-resolution cover art in a proper window instead of the
+      terminal. Implies --image-preview.
     -i, --image-preview
       Allows image preview in fzf and rofi
     -j, --json
@@ -79,6 +83,10 @@ usage() {
       Specify the subtitle language
     -n, --number
       Specify the episode number for an anime
+    -r, --range
+      Specify a range of episodes to watch (e.g. -r 5-10 or -r "5 10")
+    --debug
+      Print the resolved video link instead of playing it
     --rofi, --dmenu, --external-menu
       Use an external menu (instead of the default fzf) to select an anime (default one is rofi, but this can be specified in the config file)
     -q, --quality
@@ -128,6 +136,16 @@ configuration() {
     subs_language="$(printf "%s" "$subs_language" | cut -c2-)"
     [ -z "$use_external_menu" ] && use_external_menu=false
     [ -z "$image_preview" ] && image_preview=false
+    [ -z "$use_gui" ] && use_gui=false
+    if [ -z "$gui_script" ]; then
+        # Look next to this script first, then in the data dir
+        _self_dir="${0%/*}"
+        if [ -f "$_self_dir/jerry_gui.py" ]; then
+            gui_script="$_self_dir/jerry_gui.py"
+        else
+            gui_script="$data_dir/jerry_gui.py"
+        fi
+    fi
     [ -z "$json_output" ] && json_output=false
     [ -z "$sub_or_dub" ] && sub_or_dub="sub"
     [ -z "$score_on_completion" ] && score_on_completion="false"
@@ -313,6 +331,14 @@ EOF
 }
 
 launcher() {
+    if [ "$use_gui" = "true" ]; then
+        if [ -n "$2" ]; then
+            python3 "$gui_script" --mode list --prompt "$1" --with-nth "$2"
+        else
+            python3 "$gui_script" --mode list --prompt "$1"
+        fi
+        return
+    fi
     case "$use_external_menu" in
         true)
             [ -z "$2" ] && rofi -config "$rofi_prompt_config" -sort -matching fuzzy -dmenu -i -width 1500 -p "" -mesg "$1" -matching fuzzy -sorting-method fzf
@@ -386,6 +412,10 @@ download_thumbnails() {
 }
 
 image_preview_fzf() {
+    if [ "$use_gui" = "true" ]; then
+        choice=$(printf "%s" "$3" | python3 "$gui_script" --prompt "$2" --cache-dir "$images_cache_dir")
+        return
+    fi
     if [ -n "$use_ueberzugpp" ]; then
         UB_PID_FILE="/tmp/.$(uuidgen)"
         if [ -z "$ueberzug_output" ]; then
@@ -413,6 +443,10 @@ image_preview_fzf() {
 }
 
 select_desktop_entry() {
+    if [ "$use_gui" = "true" ]; then
+        image_preview_fzf "$1" "$2" "$3"
+        return
+    fi
     if [ "$use_external_menu" = true ]; then
         [ -n "$image_config_path" ] && choice=$(rofi -config "$rofi_prompt_config" -show drun -drun-categories jerry -filter "$1" -show-icons -theme "$image_config_path" -i -matching fuzzy -sorting-method fzf |
             $sed -nE "s@.*/([0-9]*)\.desktop@\1@p") 2>/dev/null ||
@@ -1306,6 +1340,11 @@ play_video() {
         *) displayed_title="$title - Ep $((progress + 1))" ;;
     esac
     case $player in
+        debug)
+            printf "Video link:\n%s\n" "$video_link"
+            [ -n "$subs_links" ] && printf "Subtitles:\n%s\n" "$subs_links"
+            return
+            ;;
         mpv | mpv.exe)
             if [ -f "$history_file" ] && [ -z "$using_number" ]; then
                 history=$(grep -E "^${media_id}[[:space:]]*$((progress + 1))" "$history_file")
@@ -1480,6 +1519,7 @@ binge() {
             watch_anime_choice
             [ -z "$percentage_progress" ] || [ "$percentage_progress" -lt 85 ] && break
             [ $((progress + 1)) = "$episodes_total" ] && break
+            [ -n "$range_end" ] && [ "$((progress + 1))" -ge "$range_end" ] && break
             if [ $player != mpv ] && [ $player != mpv.exe ]; then
                 send_notification "Please only select Yes if you have finished watching the episode" "5000"
                 binge_watching=$(printf "Yes\nNo" | launcher "Do you want to keep binge watching? [Y/n] ")
@@ -1625,6 +1665,11 @@ while [ $# -gt 0 ]; do
         -h | --help)
             usage && exit 0
             ;;
+        -g | --gui)
+            use_gui=true
+            image_preview=true
+            shift
+            ;;
         -i | --image-preview)
             image_preview=true
             shift
@@ -1651,6 +1696,19 @@ while [ $# -gt 0 ]; do
             ;;
         -n | --number)
             progress=$(($2 - 1))
+            using_number=1
+            shift 2
+            ;;
+        -r | --range)
+            range_val="$2"
+            if printf "%s" "$range_val" | grep -q '-'; then
+                range_start=$(printf "%s" "$range_val" | cut -d'-' -f1)
+                range_end=$(printf "%s" "$range_val" | cut -d'-' -f2)
+            else
+                range_start=$(printf "%s" "$range_val" | cut -d' ' -f1)
+                range_end=$(printf "%s" "$range_val" | cut -d' ' -f2)
+            fi
+            progress=$((range_start - 1))
             using_number=1
             shift 2
             ;;
@@ -1683,6 +1741,10 @@ while [ $# -gt 0 ]; do
         -v | -V | --version)
             send_notification "Jerry Version: $JERRY_VERSION"
             exit 0
+            ;;
+        --debug)
+            player="debug"
+            shift
             ;;
         --vlc)
             player="vlc"
