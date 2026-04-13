@@ -8,15 +8,21 @@ jerry_editor=${VISUAL:-${EDITOR}}
 tmp_dir="${TMPDIR:-/tmp}/jerry"
 tmp_position="${TMPDIR:-/tmp}/jerry_position"
 
+_jerry_exit_msg=""
+_cleanup_done=""
+
 cleanup() {
-    # tput clear
+    [ -n "$_cleanup_done" ] && return
+    _cleanup_done=1
     rm -rf "$tmp_dir" 2>/dev/null
     if [ "$image_preview" = true ] && [ "$use_external_menu" = false ]; then
         killall ueberzugpp 2>/dev/null
         rm /tmp/ueberzugpp-* 2>/dev/null
     fi
+    [ -n "$_jerry_exit_msg" ] && send_notification "Jerry" "4000" "" "$_jerry_exit_msg"
 }
-trap cleanup EXIT INT TERM
+trap 'cleanup' EXIT
+trap '_jerry_exit_msg="Stopped"; cleanup; exit 130' INT TERM
 
 applications="$HOME/.local/share/applications/jerry"
 images_cache_dir="/tmp/jerry/jerry-images"
@@ -1465,7 +1471,11 @@ watch_anime() {
     fi
 
     get_json
-    [ -z "$video_link" ] && exit 1
+    if [ -z "$video_link" ]; then
+        _jerry_exit_msg="Could not get video for: $title"
+        send_notification "Error" "4000" "" "Could not get video for: $title"
+        exit 1
+    fi
     play_video
 
 }
@@ -1561,12 +1571,29 @@ binge() {
             exit 1
         fi
     done
+    # Notify what happened after binge ends
+    if [ -n "$title" ]; then
+        if [ "$1" = "ANIME" ]; then
+            if [ "$episodes_total" != "9999" ] && [ $((progress + 1)) -ge "$episodes_total" ] 2>/dev/null; then
+                _jerry_exit_msg="Completed: $title"
+            else
+                _jerry_exit_msg="Stopped: $title — Ep $((progress + 1))"
+            fi
+        elif [ "$1" = "MANGA" ]; then
+            if [ "$chapters_total" != "9999" ] && [ $((progress + 1)) -ge "$chapters_total" ] 2>/dev/null; then
+                _jerry_exit_msg="Completed: $title"
+            else
+                _jerry_exit_msg="Stopped: $title — Ch $((progress + 1))"
+            fi
+        fi
+    fi
 }
 
 main() {
     if [ -z "$no_anilist" ]; then
         check_credentials
         if [ -z "$access_token" ] || [ -z "$user_id" ]; then
+            _jerry_exit_msg="Authentication failed — check your AniList token"
             exit 1
         fi
         [ -n "$query" ] && mode_choice="Watch New Anime"
