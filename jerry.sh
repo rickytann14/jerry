@@ -618,12 +618,29 @@ get_airing_today() {
 get_recently_updated_manga() {
     api_page=1
     while true; do
-        manga_updates=$(curl -s -X POST "$anilist_base" \
+        allow_adult=$( [ "$show_adult_content" = true ] && printf "true" || printf "false" )
+        # fetch recently updated manga from allmanga sorted by actual chapter upload time
+        raw_data=$(curl -s -X POST "https://api.$allanime_base/api" \
+            -H "User-Agent: Mozilla/5.0" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://allanime.to" \
+            --data-raw '{"variables":{"search":{"sortBy":"Latest_Update","allowAdult":'"$allow_adult"',"allowUnknown":false},"limit":50,"page":'"$api_page"'},"query":"query($search: SearchInput, $limit: Int, $page: Int) { mangas(search: $search, limit: $limit, page: $page) { edges { name aniListId availableChapters } } }"}')
+        parsed=$(printf "%s" "$raw_data" \
+            | sed 's/},{"name"/\n{"name"/g' \
+            | $sed -nE 's|.*"name":"([^"]*)".*"aniListId":"([0-9]+)".*"sub":([0-9]+).*|\1\t\2\t\3|p' \
+            | sed 's/\\\//\//g')
+        # batch-fetch cover images from AniList using the aniListIds
+        id_list=$(printf "%s" "$parsed" | cut -f2 | tr '\n' ',' | sed 's/,$//')
+        covers=$(curl -s -X POST "$anilist_base" \
             -H 'Content-Type: application/json' \
-            -d "{\"query\":\"query(\$page:Int){Page(perPage:50 page:\$page){media(type:MANGA sort:UPDATED_AT_DESC isAdult:false){id title{userPreferred}coverImage{extraLarge}updatedAt chapters}}}\",\"variables\":{\"page\":$api_page}}" \
-            | $sed 's/},{/\n/g' \
-            | $sed -nE 's@.*"id":([0-9]*).*"userPreferred":"([^"]*)".*"extraLarge":"([^"]*)".*"updatedAt":([0-9]*).*"chapters":([^,}]*).*@\3\t\1\t\2@p' \
-            | $sed 's/\\\//\//g')
+            -d '{"query":"query($ids:[Int]){Page(perPage:50){media(type:MANGA id_in:$ids){id coverImage{extraLarge}}}}","variables":{"ids":['"$id_list"']}}' \
+            | sed 's/},{/\n/g' \
+            | $sed -nE 's|.*"id":([0-9]*).*"extraLarge":"([^"]*)".*|\1\t\2|p' \
+            | sed 's/\\\//\//g')
+        manga_updates=$(printf "%s" "$parsed" | while IFS="$(printf '\t')" read -r name anilist_id chapters; do
+            cover=$(printf "%s" "$covers" | $sed -nE "s|^${anilist_id}\t(.*)|\1|p")
+            printf "%s\t%s\t%s (%s ch.)\n" "$cover" "$anilist_id" "$name" "$chapters"
+        done)
         next_page=$((api_page + 1))
         prev_page=$((api_page - 1))
         display_list=$(printf "%s\n\t0\t<< Page $next_page (Older)" "$manga_updates")
@@ -635,14 +652,14 @@ get_recently_updated_manga() {
                     select_desktop_entry "" "Manga Updates (Page $api_page): " "$display_list"
                     [ -z "$choice" ] && exit 1
                     media_id="$choice"
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$manga_updates" | $sed -nE "s@.*\t$media_id\t(.*)@\1@p")
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$manga_updates" | $sed -nE "s@.*\t$media_id\t(.*)@\1@p" | sed 's/ ([0-9]* ch\.)//')
                     ;;
                 *)
                     tmp_list=$(printf "%s" "$display_list" | $sed -nE "s@(.*\.[jpneg]*)[[:space:]]*([0-9]*)[[:space:]]*(.*)@\3\t\2\t\1@p")
                     choice=$(printf "%s" "$tmp_list" | launcher "Manga Updates (Page $api_page): " "1")
                     [ -z "$choice" ] && exit 1
                     media_id=$(printf "%s" "$choice" | cut -f2)
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | sed 's/ ([0-9]* ch\.)//')
                     ;;
             esac
         else
@@ -652,13 +669,13 @@ get_recently_updated_manga() {
                     select_desktop_entry "" "Manga Updates (Page $api_page): " "$display_list"
                     [ -z "$choice" ] && exit 0
                     media_id=$(printf "%s" "$choice" | cut -f2)
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | sed 's/ ([0-9]* ch\.)//')
                     ;;
                 *)
                     choice=$(printf "%s" "$display_list" | launcher "Manga Updates (Page $api_page): " "3")
                     [ -z "$choice" ] && exit 0
                     media_id=$(printf "%s" "$choice" | cut -f2)
-                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3)
+                    [ "$media_id" != "0" ] && [ "$media_id" != "-1" ] && title=$(printf "%s" "$choice" | cut -f3 | sed 's/ ([0-9]* ch\.)//')
                     ;;
             esac
         fi
