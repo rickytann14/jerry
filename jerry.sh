@@ -218,14 +218,25 @@ provider_init() {
     provider_id=$(printf "%s" "$resp" | sed -n "$2" | head -1 | cut -d':' -f2 | sed 's/../&\n/g' | sed 's/^01$/9/g;s/^08$/0/g;s/^05$/=/g;s/^0a$/2/g;s/^0b$/3/g;s/^0c$/4/g;s/^07$/?/g;s/^00$/8/g;s/^5c$/d/g;s/^0f$/7/g;s/^5e$/f/g;s/^17$/\//g;s/^54$/l/g;s/^09$/1/g;s/^48$/p/g;s/^4f$/w/g;s/^0e$/6/g;s/^5b$/c/g;s/^5d$/e/g;s/^0d$/5/g;s/^53$/k/g;s/^1e$/\&/g;s/^5a$/b/g;s/^59$/a/g;s/^4a$/r/g;s/^4c$/t/g;s/^4e$/v/g;s/^57$/o/g;s/^51$/i/g;' | tr -d '\n' | sed "s/\/clock/\/clock\.json/")
 }
 
+yt_provider_init() {
+    provider_name=$1
+    hex=$(printf "%s" "$resp" | sed -n "$2" | head -1 | cut -d':' -f2)
+    [ -z "$hex" ] && return
+    url=$(printf '%s' "$hex" | sed 's/../& /g' | tr -s ' ' '\n' | while IFS= read -r pair; do
+        [ -z "$pair" ] && continue
+        val=$(printf '%d' "0x$pair" 2>/dev/null) || continue
+        printf "\\$(printf '%03o' "$(( val ^ 56 ))")"
+    done)
+    [ -n "$url" ] && printf "Mp4 >%s\n" "$url"
+}
+
 generate_links() {
     case $1 in
-        # using gogoanime as the default provider since it provides m3u8 links and bc --start doesn't work with mp4 links (idk why)
-        1) provider_init "gogoanime" "/Luf-mp4 :/p" ;; # gogoanime(m3u8)(multi)
-        2) provider_init "wixmp" "/Default :/p" ;;     # wixmp(default)(m3u8)(multi) -> (mp4)(multi)
-        3) provider_init "dropbox" "/Sak :/p" ;;       # dropbox(mp4)(single)
-        4) provider_init "wetransfer" "/Kir :/p" ;;    # wetransfer(mp4)(single)
-        5) provider_init "sharepoint" "/S-mp4 :/p" ;;  # sharepoint(mp4)(single)
+        1) provider_init "gogoanime" "/Luf-Mp4 :/p" ;;  # gogoanime(m3u8)(multi)
+        2) provider_init "wixmp" "/Default :/p" ;;       # wixmp(m3u8)(multi) -> (mp4)(multi)
+        3) yt_provider_init "ytmp4" "/Yt-mp4 :/p" ;;    # direct mp4 via XOR-38 decode
+        4) provider_init "uv" "/Uv-mp4 :/p" ;;          # uv mp4
+        5) provider_init "sharepoint" "/S-mp4 :/p" ;;   # sharepoint(mp4)(single)
     esac
     [ -n "$provider_id" ] && get_links "$provider_id"
 }
@@ -1285,6 +1296,10 @@ get_json() {
             ;;
     esac
 
+    if printf "%s" "$json_data" | grep -q '"episode":null'; then
+        send_notification "Jerry" "" "" "Episode not available yet"
+        exit 0
+    fi
     [ -n "$json_data" ] && extract_from_json
 }
 
