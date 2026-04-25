@@ -1576,11 +1576,28 @@ watch_anime_choice() {
 }
 
 read_manga_choice() {
-    [ -z "$media_id" ] && get_manga_from_list "CURRENT|REPEATING"
+    _manga_newly_selected=""
+    if [ -z "$media_id" ]; then
+        get_manga_from_list "CURRENT|REPEATING"
+        _manga_newly_selected=1
+    fi
     [ -z "$chapters_total" ] && chapters_total="9999"
     if [ -z "$media_id" ] || [ -z "$title" ] || [ -z "$progress" ]; then
         send_notification "Jerry" "" "" "Error, no manga found"
         exit 1
+    fi
+    if [ -n "$_manga_newly_selected" ]; then
+        _default_ch=$((progress + 1))
+        [ "$_default_ch" -gt "$chapters_total" ] && _default_ch=1
+        if [ "$chapters_total" != "9999" ]; then
+            _ch_pick=$(seq 1 "$chapters_total" | launcher "Select chapter (current: $_default_ch): ")
+        elif [ "$use_external_menu" = true ]; then
+            _ch_pick=$(printf "" | launcher "Start from chapter (default: $_default_ch): ")
+        else
+            printf "Start from chapter (default: %s): " "$_default_ch"
+            read -r _ch_pick
+        fi
+        [ -n "$_ch_pick" ] && progress=$((_ch_pick - 1))
     fi
     send_notification "Loading" "" "$images_cache_dir/$media_id.jpg" "$title"
     read_manga
