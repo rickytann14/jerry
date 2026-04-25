@@ -1470,22 +1470,13 @@ read_chapter() {
             ;;
     esac
     [ "$((progress + 1))" -eq "$chapters_total" ] && status="COMPLETED" || status="CURRENT"
-    completed_chapter=$(printf "Yes\nNo" | launcher "Do you want to update progress? [Y/n] ")
-    case "$completed_chapter" in
-        [Yy]*)
-            response=$(update_progress "$((progress + 1))" "$media_id" "$status")
-            if printf "%s" "$response" | grep -q "errors"; then
-                send_notification "Error" "" "" "Could not update progress"
-            else
-                send_notification "Updated progress to $((progress + 1))/$chapters_total chapters read" "" "$images_cache_dir/$media_id.jpg"
-                progress=$((progress + 1))
-            fi
-            ;;
-        [Nn]*)
-            send_notification "Your progress has not been updated"
-            ;;
-        *) exit 0 ;;
-    esac
+    response=$(update_progress "$((progress + 1))" "$media_id" "$status")
+    if printf "%s" "$response" | grep -q "errors"; then
+        send_notification "Error" "" "" "Could not update progress"
+    else
+        send_notification "Updated progress to $((progress + 1))/$chapters_total chapters read" "" "$images_cache_dir/$media_id.jpg"
+        progress=$((progress + 1))
+    fi
 }
 
 watch_anime() {
@@ -1615,8 +1606,9 @@ binge() {
             resume_from=""
         elif [ "$1" = "MANGA" ]; then
             read_manga_choice
-            [ $((progress + 1)) -eq "$chapters_total" ] && break
-            case $completed_chapter in
+            [ "$progress" -eq "$chapters_total" ] && break
+            next_chapter=$(printf "Yes\nNo" | launcher "Do you want to read the next chapter? [Y/n] ")
+            case $next_chapter in
                 [Nn]*) break ;;
             esac
         else
