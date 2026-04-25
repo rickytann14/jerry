@@ -286,7 +286,6 @@ class ListPickerDialog(Gtk.Dialog):
         self.result = None
         self._display = display_items
         self._orig    = orig_lines
-        self._query   = ""
 
         _apply_css()
 
@@ -296,14 +295,15 @@ class ListPickerDialog(Gtk.Dialog):
         box = self.get_content_area()
         box.set_spacing(0)
 
-        search = Gtk.SearchEntry()
-        search.set_placeholder_text(prompt or "Search…")
-        search.get_style_context().add_class("search-entry")
-        search.set_margin_top(12)
-        search.set_margin_bottom(6)
-        search.set_margin_start(12)
-        search.set_margin_end(12)
-        box.pack_start(search, False, False, 0)
+        if prompt:
+            lbl = Gtk.Label(label=prompt)
+            lbl.get_style_context().add_class("count-label")
+            lbl.set_halign(Gtk.Align.START)
+            lbl.set_margin_top(12)
+            lbl.set_margin_bottom(6)
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            box.pack_start(lbl, False, False, 0)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -313,52 +313,27 @@ class ListPickerDialog(Gtk.Dialog):
         for item in display_items:
             self._store.append([item])
 
-        self._fmodel = self._store.filter_new()
-        self._fmodel.set_visible_func(self._filter)
-
-        self._tree = Gtk.TreeView(model=self._fmodel)
+        self._tree = Gtk.TreeView(model=self._store)
         self._tree.set_headers_visible(False)
         col = Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=0)
         self._tree.append_column(col)
         self._tree.connect("row-activated", self._on_row_activated)
         scroll.add(self._tree)
 
-        search.connect("search-changed", lambda e: self._do_filter(e.get_text()))
-        search.connect("activate", self._on_enter)
         self.connect("key-press-event", lambda _w, ev: (
             self.response(Gtk.ResponseType.CANCEL)
             if ev.keyval == Gdk.KEY_Escape else None
         ))
         self.show_all()
-        GLib.idle_add(search.grab_focus)
-
-    def _filter(self, model, it, _data):
-        return (not self._query) or (self._query in model[it][0].lower())
-
-    def _do_filter(self, text: str):
-        self._query = text.lower()
-        self._fmodel.refilter()
+        GLib.idle_add(self._tree.grab_focus)
 
     def _on_row_activated(self, _tree, path, _col):
-        it = self._fmodel.get_iter(path)
-        disp = self._fmodel[it][0]
-        self.result = self._resolve(disp)
-        self.response(Gtk.ResponseType.OK)
-
-    def _on_enter(self, _entry):
-        _sel_model, it = self._tree.get_selection().get_selected()
-        if it:
-            disp = self._fmodel[it][0]
-        else:
-            it = self._fmodel.get_iter_first()
-            if not it:
-                return
-            disp = self._fmodel[it][0]
+        it = self._store.get_iter(path)
+        disp = self._store[it][0]
         self.result = self._resolve(disp)
         self.response(Gtk.ResponseType.OK)
 
     def _resolve(self, display_val: str) -> str:
-        """Map displayed value back to original line."""
         for orig, disp in zip(self._orig, self._display):
             if disp == display_val:
                 return orig
