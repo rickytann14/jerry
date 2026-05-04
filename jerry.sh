@@ -149,6 +149,7 @@ configuration() {
     if [ "$platform" = "android" ]; then
         use_external_menu=false
         image_preview=false
+        manga_format="pdf"
         manga_opener="termux-open"
     fi
     [ -z "$use_gui" ] && use_gui=false
@@ -1535,12 +1536,7 @@ read_chapter() {
             ;;
         image)
             send_notification "Opening - $title" "1000" "$images_cache_dir/$media_id.jpg" "Chapter: $((progress + 1)) $chapter_title"
-            if [ "$platform" = "android" ]; then
-                first_img=$(ls "$manga_dir/$title/chapter_$((progress + 1))"/* 2>/dev/null | head -1)
-                [ -n "$first_img" ] && termux-open "$first_img"
-            else
-                ${manga_opener} "$manga_dir/$title/chapter_$((progress + 1))"
-            fi
+            ${manga_opener} "$manga_dir/$title/chapter_$((progress + 1))"
             ;;
     esac
     [ "$((progress + 1))" -eq "$chapters_total" ] && status="COMPLETED" || status="CURRENT"
