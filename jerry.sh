@@ -17,7 +17,7 @@ cleanup() {
     rm -rf "$tmp_dir" 2>/dev/null
     if [ "$image_preview" = true ] && [ "$use_external_menu" = false ]; then
         killall ueberzugpp 2>/dev/null
-        rm /tmp/ueberzugpp-* 2>/dev/null
+        rm "${TMPDIR:-/tmp}"/ueberzugpp-* 2>/dev/null
     fi
     [ -n "$_jerry_exit_msg" ] && send_notification "Jerry" "4000" "" "$_jerry_exit_msg"
 }
@@ -25,12 +25,16 @@ trap 'cleanup' EXIT
 trap '_jerry_exit_msg="Stopped"; cleanup; exit 130' INT TERM
 
 applications="$HOME/.local/share/applications/jerry"
-images_cache_dir="/tmp/jerry/jerry-images"
+images_cache_dir="$tmp_dir/jerry-images"
 
 command -v bat >/dev/null 2>&1 && display="bat" || display="less"
+case "$(uname -o 2>/dev/null)" in
+    Android) platform="android" ;;
+    *) platform="linux" ;;
+esac
 case "$(uname -s)" in
-    MINGW* | *Msys) separator=';' && path_thing='' && sed="sed" ;;
-    *arwin) sed="gsed" && player="iina" ;;
+    MINGW* | *Msys) separator=';' && path_thing='' && sed="sed" && platform="windows" ;;
+    *arwin) sed="gsed" && player="iina" && platform="macos" ;;
     *) separator=':' && path_thing="\\" && sed="sed" ;;
 esac
 command -v notify-send >/dev/null 2>&1 && notify="true" || notify="false"
@@ -142,6 +146,10 @@ configuration() {
     subs_language="$(printf "%s" "$subs_language" | cut -c2-)"
     [ -z "$use_external_menu" ] && use_external_menu=false
     [ -z "$image_preview" ] && image_preview=false
+    if [ "$platform" = "android" ]; then
+        use_external_menu=false
+        image_preview=false
+    fi
     [ -z "$use_gui" ] && use_gui=false
     if [ -z "$gui_script" ]; then
         # Look next to this script first, then in the data dir
@@ -431,7 +439,7 @@ download_thumbnails() {
         [ -z "$cover_url" ] && continue
         curl -s -o "$images_cache_dir/$media_id.jpg" "$cover_url" &
         if [ "$use_external_menu" = true ]; then
-            entry=/tmp/jerry/applications/"$media_id.desktop"
+            entry="$tmp_dir/applications/$media_id.desktop"
             generate_desktop "$title" "$images_cache_dir/$media_id.jpg" >"$entry" &
         fi
     done
@@ -444,7 +452,7 @@ image_preview_fzf() {
         return
     fi
     if [ -n "$use_ueberzugpp" ]; then
-        UB_PID_FILE="/tmp/.$(uuidgen)"
+        UB_PID_FILE="${TMPDIR:-/tmp}/.$(uuidgen)"
         if [ -z "$ueberzug_output" ]; then
             ueberzugpp layer --no-stdin --silent --use-escape-codes --pid-file "$UB_PID_FILE" 2>/dev/null
         else
