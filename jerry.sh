@@ -148,7 +148,6 @@ configuration() {
     [ -z "$image_preview" ] && image_preview=false
     if [ "$platform" = "android" ]; then
         use_external_menu=false
-        image_preview=false
         manga_format="pdf"
         manga_opener="termux-open"
     fi
@@ -170,8 +169,8 @@ configuration() {
     [ -z "$presence_script_path" ] && presence_script_path="jerrydiscordpresence.py"
     [ -z "$rofi_prompt_config" ] && rofi_prompt_config="$HOME/.config/rofi/config.rasi"
     if [ -z "$chafa_options" ]; then
-        case "$(uname -s)" in
-            MINGW* | *Msys) chafa_options="-f symbols" ;;
+        case "$platform" in
+            android|windows) chafa_options="-f symbols" ;;
             *) chafa_options="-f sixel" ;;
         esac
     fi
