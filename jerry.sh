@@ -436,11 +436,14 @@ hdrezka_data_and_translation_id() {
 }
 
 download_thumbnails() {
-    printf "%s\n" "$1" | while read -r cover_url media_id title; do
+    printf "%s\n" "$1" | while IFS= read -r _line; do
+        cover_url=$(printf "%s" "$_line" | cut -f1)
         [ -z "$cover_url" ] && continue
+        media_id=$(printf "%s" "$_line" | cut -f2)
         curl -s -o "$images_cache_dir/$media_id.jpg" "$cover_url" &
         if [ "$use_external_menu" = true ]; then
             entry="$tmp_dir/applications/$media_id.desktop"
+            title=$(printf "%s" "$_line" | cut -f3-)
             generate_desktop "$title" "$images_cache_dir/$media_id.jpg" >"$entry" &
         fi
     done
