@@ -141,6 +141,7 @@ configuration() {
     [ -z "$manga_dir" ] && manga_dir="$data_dir/jerry-manga"
     [ -z "$manga_format" ] && manga_format="image"
     [ -z "$manga_opener" ] && manga_opener="feh"
+    [ -z "$manga_provider" ] && manga_provider="allanime"
     [ -z "$history_file" ] && history_file="$data_dir/jerry_history.txt"
     [ -z "$subs_language" ] && subs_language="english"
     subs_language="$(printf "%s" "$subs_language" | cut -c2-)"
@@ -1394,8 +1395,20 @@ get_json() {
 
 #### MANGA SCRAPING FUNCTIONS ####
 get_chapter_info() {
-    manga_provider="mangadex"
     case "$manga_provider" in
+        allanime)
+            [ -z "$allanime_base" ] && allanime_base="allanime.day"
+            [ -z "$allanime_key" ] && allanime_key="$(printf '%s' 'Xot36i3lK3:v1' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
+            _query=$(printf "%s" "$title" | tr ' ' '+')
+            _response=$(curl -s -X POST "https://api.$allanime_base/api" \
+                -H "User-Agent: Mozilla/5.0" \
+                -H "Content-Type: application/json" \
+                -H "Origin: https://allanime.to" \
+                --data-raw '{"variables":{"search":{"allowAdult":true,"allowUnknown":true,"query":"'"$_query"'"},"limit":20,"page":1},"query":"query($search: SearchInput, $limit: Int, $page: Int) { mangas(search: $search, limit: $limit, page: $page) { edges { _id aniListId } } }"}')
+            allanime_manga_id=$(printf "%s" "$_response" | tr '{}' '\n' | sed -nE 's|.*"_id":"([^"]*)".*"aniListId":"'"$media_id"'".*|\1|p' | head -1)
+            [ -z "$allanime_manga_id" ] && return
+            chapter_info=$(printf "%s\t" "$allanime_manga_id")
+            ;;
         mangadex)
             mangadex_id=$(curl -s "https://raw.githubusercontent.com/bal-mackup/mal-backup/master/anilist/manga/${media_id}.json" | tr -d "\n" | $sed -nE "s@.*\"Mangadex\":[[:space:]{]*\"([^\"]*)\".*@\1@p")
             chapter_info=$(curl -s "https://api.mangadex.org/chapter?manga=$mangadex_id&translatedLanguage[]=en&chapter=$((progress + 1))&includeEmptyPages=0" | $sed "s/}]},/\n/g" |
@@ -1406,6 +1419,32 @@ get_chapter_info() {
 
 get_manga_json() {
     case "$manga_provider" in
+        allanime)
+            [ -z "$allanime_base" ] && allanime_base="allanime.day"
+            [ -z "$allanime_key" ] && allanime_key="$(printf '%s' 'Xot36i3lK3:v1' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
+            _chapter_str="$((progress + 1))"
+            _enc_resp=$(curl -s -X POST "https://api.$allanime_base/api" \
+                -H "User-Agent: Mozilla/5.0" \
+                -H "Content-Type: application/json" \
+                -H "Origin: https://allanime.to" \
+                --data-raw '{"variables":{"mangaId":"'"$chapter_id"'","chapterString":"'"$_chapter_str"'","translationType":"sub"},"query":"query($mangaId: String!, $chapterString: String!, $translationType: VaildTranslationTypeMangaEnumType!) { chapterPages(mangaId: $mangaId, chapterString: $chapterString, translationType: $translationType) { edges { pictureUrls pictureUrlHead chapterString } } }"}' \
+                | sed -nE 's|.*"tobeparsed":"([^"]*)".*|\1|p')
+            if [ -z "$_enc_resp" ]; then
+                send_notification "Jerry" "3000" "" "Episode not available yet"
+                exit 1
+            fi
+            _plain=$(decode_tobeparsed "$_enc_resp")
+            _url_head=$(printf "%s" "$_plain" | sed -nE 's|.*"pictureUrlHead":"([^"]*)".*|\1|p')
+            [ ! -d "$manga_dir/$title/chapter_$_chapter_str" ] && mkdir -p "$manga_dir/$title/chapter_$_chapter_str"
+            send_notification "Downloading images" "" "$images_cache_dir/$media_id.jpg" "$title - Chapter: $_chapter_str $chapter_title"
+            while IFS=' ' read -r _num _path; do
+                _img_name=$(printf "%03d.%s" "$((_num + 1))" "$(printf "%s" "$_path" | sed -nE 's|.*\.([a-zA-Z0-9]+)$|\1|p')")
+                curl -s -L -e "https://allmanga.to" "${_url_head}${_path}" -o "$manga_dir/$title/chapter_$_chapter_str/$_img_name" &
+            done << _PAGES_
+$(printf "%s" "$_plain" | tr '{}' '\n' | sed -nE 's|.*"num":([0-9]+).*"url":"([^"]*)".*|\1 \2|p')
+_PAGES_
+            wait
+            ;;
         mangadex)
             json_data=$(curl -s "https://api.mangadex.org/at-home/server/$chapter_id" | $sed "s/\\\//g")
             if [ "$json_output" = true ]; then
