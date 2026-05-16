@@ -1163,6 +1163,9 @@ extract_from_json() {
             for link_provider in $link_providers; do
                 generate_links "$link_provider" >"$cache_dir"/"$link_provider" &
             done
+            # extract direct Yt-mp4 URL (pre-signed with Authorization token in the API response)
+            yt_direct=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*"sourceUrl":"(https://tools\.fast4speed\.rsvp[^"]*)".*|\1|p')
+            [ -n "$yt_direct" ] && printf "Mp4 >%s\n" "$yt_direct" >"$cache_dir/yt_direct"
             wait
             # select the link with matching quality
             links=$(cat "$cache_dir"/* | sed 's|^Mp4-||g;/http/!d' | sort -g -r -s)
