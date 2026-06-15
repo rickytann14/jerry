@@ -1166,6 +1166,12 @@ extract_from_json() {
             # extract direct Yt-mp4 URL (pre-signed with Authorization token in the API response)
             yt_direct=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*"sourceUrl":"(https://tools\.fast4speed\.rsvp[^"]*)".*|\1|p')
             [ -n "$yt_direct" ] && printf "Mp4 >%s\n" "$yt_direct" >"$cache_dir/yt_direct"
+            # extract Mp4upload source as fallback when internal CDN sources are unavailable
+            mp4upload_url=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*"sourceUrl":"(https://mp4upload[^"]*)".*|\1|p' | head -1)
+            [ -n "$mp4upload_url" ] && {
+                mp4_direct=$(curl --max-time 15 -sLk "$mp4upload_url" -A "$agent" -e "$allanime_refr" | sed -nE 's|.*src: "([^"]*)"[[:space:]]*|\1|p' | head -1)
+                [ -n "$mp4_direct" ] && printf "Mp4 >%s\n" "$mp4_direct" >"$cache_dir/mp4upload"
+            } &
             wait
             # select the link with matching quality
             links=$(cat "$cache_dir"/* | sed 's|^Mp4-||g;/http/!d' | sort -g -r -s)
@@ -1526,7 +1532,12 @@ play_video() {
             fi
             [ -n "$history" ] && resume_from=$(printf "%s" "$history" | cut -f3)
             opts="$player_arguments"
-            [ "$provider" = "allanime" ] && opts="$opts --http-header-fields-append=Referer:https://allanime.day/"
+            if [ "$provider" = "allanime" ]; then
+                case "$video_link" in
+                    *mp4upload*) opts="$opts --http-header-fields-append=Referer:https://www.mp4upload.com/" ;;
+                    *) opts="$opts --http-header-fields-append=Referer:https://allanime.day/" ;;
+                esac
+            fi
             if [ -n "$resume_from" ]; then
                 opts="$opts --start=${resume_from}"
                 send_notification "Resuming from" "" "" "$resume_from"
