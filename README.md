@@ -57,7 +57,7 @@ sudo chmod +x /usr/local/bin/jerry
 <summary>Windows installation instructions</summary>
 
 * This guide covers how to install and use jerry with the Windows Terminal (which comes pre-installed with Windows 11), you could also use a different terminal emulator, that supports fzf, like for example Wezterm
-* Note that the Git Bash terminal does *not* have proper 
+* Note that the Git Bash terminal does *not* have proper
 fzf support
 
 Basically, what we are going to do is install the bash shell and use it to install the shell script. We will also install the mpv video player and fzf, which are required for the script to work.
@@ -146,7 +146,7 @@ Options:
     -w, --website
       Choose which website to get video links from (default: allanime) (currently supported: allanime, aniwatch, yugen, hdrezka, and crunchyroll)
 
-  Note: 
+  Note:
     All arguments can be specified in the config file as well.
     If an argument is specified in both the config file and the command line, the command line argument will be used.
 

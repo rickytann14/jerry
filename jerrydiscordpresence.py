@@ -61,7 +61,7 @@ process = subprocess.Popen(
 if sys.platform == 'win32':
     file_path = os.path.join(os.environ['LocalAppData'], 'Temp', 'jerry_position')
 else:
-    file_path = '/tmp/jerry_position'
+    file_path = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'jerry_position')
 
 while True:
     with open(file_path, 'r') as file:

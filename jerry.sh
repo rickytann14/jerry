@@ -112,7 +112,7 @@ usage() {
     -w, --website
       Choose which website to get video links from (default: allanime) (currently supported: allanime, aniwatch, yugen, hdrezka and crunchyroll)
 
-    Note: 
+    Note:
       All arguments can be specified in the config file as well.
       If an argument is specified in both the config file and the command line, the command line argument will be used.
 
@@ -635,7 +635,12 @@ get_airing_today() {
         [ -z "$media_id" ] && exit 0
         break
     done
-    [ -n "$ep_num" ] && progress=$((ep_num - 1)) || progress=0
+    progress=$(curl -s -X POST "$anilist_base" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $access_token" \
+        -d "{\"query\":\"query(\$id:Int){Media(id:\$id){mediaListEntry{progress}}}\",\"variables\":{\"id\":$media_id}}" |
+        $sed -nE 's|.*"progress":([0-9]+).*|\1|p')
+    [ -z "$progress" ] && progress=0
     episodes_total=9999
 }
 
@@ -708,7 +713,12 @@ get_recently_updated_manga() {
         [ -z "$media_id" ] && exit 0
         break
     done
-    progress=0
+    progress=$(curl -s -X POST "$anilist_base" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $access_token" \
+        -d "{\"query\":\"query(\$id:Int){Media(id:\$id){mediaListEntry{progress}}}\",\"variables\":{\"id\":$media_id}}" |
+        $sed -nE 's|.*"progress":([0-9]+).*|\1|p')
+    [ -z "$progress" ] && progress=0
     chapters_total=9999
 }
 
@@ -1159,7 +1169,7 @@ extract_from_json() {
             resp=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*sourceUrl":"--([^"]*)".*sourceName":"([^"]*)".*|\2 :\1|p')
             # generate links into sequential files
             cache_dir="$(mktemp -d)"
-            link_providers="1 2 3 4 5"
+            link_providers="1 2 3 4 5 6"
             for link_provider in $link_providers; do
                 generate_links "$link_provider" >"$cache_dir"/"$link_provider" &
             done
@@ -1475,7 +1485,7 @@ _PAGES_
 #### MEDIA FUNCTIONS ####
 
 add_to_history() {
-    if [ -n "$percentage_progress" ] && [ "$percentage_progress" -gt 25 ]; then
+    if [ -n "$percentage_progress" ] && [ "$percentage_progress" -gt 85 ]; then
         if [ -z "$no_anilist" ]; then
             response=$(update_progress "$((progress + 1))" "$media_id" "$status")
             if printf "%s" "$response" | grep -q "errors"; then
@@ -1544,14 +1554,14 @@ play_video() {
             fi
             if [ -n "$subs_links" ]; then
                 send_notification "$title" "4000" "$images_cache_dir/$media_id.jpg" "$title"
-                if [ "$discord_presence" = "true" ] && [ -f "$presence_script_path" ]; then
+                if [ "$discord_presence" = "true" ] && command -v "$presence_script_path" >/dev/null 2>&1; then
                     eval "$presence_script_path" \"$player\" \"${title}\" \"${start_year}\" \"$((progress + 1))\" \"${video_link}\" \"${subs_links}\" ${opts} 2>&1 | tee $tmp_position
                 else
                     $player "$video_link" $opts "$subs_arg" "$subs_links" --force-media-title="$displayed_title" --msg-level=ffmpeg/demuxer=error 2>&1 | tee $tmp_position
                 fi
             else
                 send_notification "$title" "4000" "$images_cache_dir/$media_id.jpg" "$title"
-                if [ "$discord_presence" = "true" ] && [ -f "$presence_script_path" ]; then
+                if [ "$discord_presence" = "true" ] && command -v "$presence_script_path" >/dev/null 2>&1; then
                     eval "$presence_script_path" \"$player\" \"${title}\" \"${start_year}\" \"$((progress + 1))\" \"${video_link}\" \"\" ${opts} 2>&1 | tee $tmp_position
                 else
                     $player "$video_link" $opts --force-media-title="$displayed_title" --msg-level=ffmpeg/demuxer=error 2>&1 | tee $tmp_position
@@ -1687,12 +1697,24 @@ watch_anime_choice() {
         if [ "$use_external_menu" = false ]; then
             printf "Start from episode [%d/%s] (press Enter for default): " "$_default_ep" "$episodes_total" >&2
             read -r _ep_input
-            if [ -n "$_ep_input" ]; then
-                progress=$((_ep_input - 1))
-            fi
+            case "$_ep_input" in
+                *[!0-9]* | '') ;;
+                *)
+                    [ "$_ep_input" -lt 1 ] && _ep_input=1
+                    [ "$_ep_input" -gt "$episodes_total" ] && _ep_input=$episodes_total
+                    progress=$((_ep_input - 1))
+                    ;;
+            esac
         else
             _ep_input=$(printf "" | launcher "Start from episode (1-${episodes_total}, default: ${_default_ep}): ")
-            [ -n "$_ep_input" ] && progress=$((_ep_input - 1))
+            case "$_ep_input" in
+                *[!0-9]* | '') ;;
+                *)
+                    [ "$_ep_input" -lt 1 ] && _ep_input=1
+                    [ "$_ep_input" -gt "$episodes_total" ] && _ep_input=$episodes_total
+                    progress=$((_ep_input - 1))
+                    ;;
+            esac
         fi
     fi
     send_notification "Loading" "3000" "$images_cache_dir/$media_id.jpg" "$title"
@@ -1722,7 +1744,14 @@ read_manga_choice() {
             printf "Start from chapter (default: %s): " "$_default_ch"
             read -r _ch_pick
         fi
-        [ -n "$_ch_pick" ] && progress=$((_ch_pick - 1))
+        case "$_ch_pick" in
+            *[!0-9]* | '') ;;
+            *)
+                [ "$_ch_pick" -lt 1 ] && _ch_pick=1
+                [ "$_ch_pick" -gt "$chapters_total" ] && _ch_pick=$chapters_total
+                progress=$((_ch_pick - 1))
+                ;;
+        esac
     fi
     send_notification "Loading" "" "$images_cache_dir/$media_id.jpg" "$title"
     read_manga
@@ -2008,6 +2037,7 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+[ "$use_gui" = "true" ] && use_external_menu=false
 # check for update
 # check_update "A new update is out. Would you like to update jerry? [Y/n] "
 query="$(printf "%s" "$query" | tr ' ' '-' | $sed "s/^-//g")"
@@ -2029,8 +2059,8 @@ esac
 if [ "$image_preview" = true ]; then
     test -d "$images_cache_dir" || mkdir -p "$images_cache_dir"
     if [ "$use_external_menu" = true ]; then
-        mkdir -p "/tmp/jerry/applications/"
-        [ ! -L "$applications" ] && ln -sf "/tmp/jerry/applications/" "$applications"
+        mkdir -p "$tmp_dir/applications/"
+        [ ! -L "$applications" ] && ln -sf "$tmp_dir/applications/" "$applications"
     fi
 fi
 
