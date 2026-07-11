@@ -156,8 +156,11 @@ class AnimeCard(Gtk.FlowBoxChild):
     # -- async image fetch ---------------------------------------------------
     def _fetch(self):
         path = os.path.join(CACHE_DIR, f"{self.media_id}.jpg")
+        has_file = False
         try:
-            if not (os.path.exists(path) and os.path.getsize(path) > 0):
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                has_file = True
+            else:
                 if self.cover_url:
                     req = urllib.request.Request(
                         self.cover_url,
@@ -167,7 +170,8 @@ class AnimeCard(Gtk.FlowBoxChild):
                         data = r.read()
                     with open(path, "wb") as f:
                         f.write(data)
-            if os.path.exists(path) and os.path.getsize(path) > 0:
+                    has_file = os.path.exists(path) and os.path.getsize(path) > 0
+            if has_file:
                 GLib.idle_add(self._show, path)
         except Exception:
             pass
@@ -238,6 +242,7 @@ class CoverPickerWindow(Gtk.Window):
         for cover_url, media_id, title, raw in items:
             self._flow.add(AnimeCard(cover_url, media_id, title, raw))
 
+        self._count_timeout_id = None
         self.connect("destroy", Gtk.main_quit)
         self.connect("key-press-event", self._on_key)
         self.show_all()
@@ -250,7 +255,9 @@ class CoverPickerWindow(Gtk.Window):
     def _on_search_changed(self, entry):
         self._query = entry.get_text().lower()
         self._flow.invalidate_filter()
-        GLib.idle_add(self._refresh_count)
+        if self._count_timeout_id:
+            GLib.source_remove(self._count_timeout_id)
+        self._count_timeout_id = GLib.timeout_add(100, self._refresh_count)
 
     def _refresh_count(self):
         n = sum(1 for c in self._flow.get_children() if c.get_mapped())
@@ -286,6 +293,7 @@ class ListPickerDialog(Gtk.Dialog):
         self.result = None
         self._display = display_items
         self._orig    = orig_lines
+        self._display_to_orig = dict(zip(display_items, orig_lines))
 
         _apply_css()
 
@@ -334,10 +342,7 @@ class ListPickerDialog(Gtk.Dialog):
         self.response(Gtk.ResponseType.OK)
 
     def _resolve(self, display_val: str) -> str:
-        for orig, disp in zip(self._orig, self._display):
-            if disp == display_val:
-                return orig
-        return display_val
+        return self._display_to_orig.get(display_val, display_val)
 
 
 # ---------------------------------------------------------------------------
