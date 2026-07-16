@@ -52,6 +52,12 @@ send_notification() {
         [ -n "$3" ] && notify-send -e "$1" "$4" -t "$timeout" -i "$3" -h string:x-canonical-private-synchronous:jerry
     fi
 }
+
+trace_log() {
+    [ "$trace_enabled" = true ] || return
+    printf "[TRACE] %s\n" "$*" >&2
+}
+
 dep_ch() {
     for dep; do
         command -v "$dep" >/dev/null || send_notification "Program \"$dep\" not found. Please install it."
@@ -91,6 +97,8 @@ usage() {
       Allows image preview in fzf and rofi
     -j, --json
       Outputs the json containing video links, subtitle links, referrers etc. to stdout
+        --trace
+            Print debug traces to stderr for selection/API/link-resolution steps
     -l, --language
       Specify the subtitle language
     -n, --number
@@ -165,6 +173,7 @@ configuration() {
         fi
     fi
     [ -z "$json_output" ] && json_output=false
+    [ -z "$trace_enabled" ] && trace_enabled=false
     [ -z "$sub_or_dub" ] && sub_or_dub="sub"
     [ -z "$score_on_completion" ] && score_on_completion="false"
     [ "$no_anilist" = false ] && no_anilist=""
@@ -253,13 +262,13 @@ yt_provider_init() {
 
 generate_links() {
     case $1 in
-        1) provider_init "gogoanime" "/Luf-Mp4 :/p" ;;  # gogoanime(m3u8)(multi)
+        1) provider_init "gogoanime" "/Luf-Mp4 :/p" ;;   # gogoanime(m3u8)(multi)
         2) provider_init "wixmp" "/Default :/p" ;;       # wixmp(m3u8)(multi) -> (mp4)(multi)
-        3) yt_provider_init "ytmp4" "/Yt-mp4 :/p" ;;    # direct mp4 via XOR-38 decode
-        4) provider_init "uv" "/Uv-mp4 :/p" ;;          # uv mp4
-        5) provider_init "filemoon" "/Fm-mp4 :/p" ;;  # filemoon(m3u8)(single)
-        6) provider_init "sharepoint" "/S-mp4 :/p" ;;   # sharepoint(mp4)(single)
-        *) provider_init "hianime" "/Luf-Mp4 :/p" ;;  # hianime(m3u8)(multi)
+        3) yt_provider_init "ytmp4" "/Yt-mp4 :/p" ;;     # direct mp4 via XOR-38 decode
+        4) provider_init "uv" "/Uv-mp4 :/p" ;;           # uv mp4
+        5) provider_init "filemoon" "/Fm-mp4 :/p" ;;     # filemoon(m3u8)(single)
+        6) provider_init "sharepoint" "/S-mp4 :/p" ;;    # sharepoint(mp4)(single)
+        *) provider_init "hianime" "/Luf-Mp4 :/p" ;;     # hianime(m3u8)(multi)
     esac
     [ -n "$provider_id" ] && provider_id="${provider_id#/https://${allanime_base}}"
     if [ "$1" = "5" ] && [ -n "$provider_id" ]; then
@@ -1055,12 +1064,14 @@ get_episode_info() {
     case "$provider" in
         allanime)
             query_title=$(printf "%s" "$title" | tr ' ' '+')
+            trace_log "allanime search title='$title' query='$query_title' requested_episode=$((progress + 1))"
             response=$(curl -s -X POST "https://api.$allanime_base/api" \
                 -H "User-Agent: Mozilla/5.0" \
                 -H "Content-Type: application/json" \
                 -H "Origin: https://allanime.to" \
                 --data-raw '{"variables":{"search":{"allowAdult":false,"allowUnknown":false,"query":"'"$query_title"'"},"limit":40,"page":1,"translationType":"sub","countryOrigin":"ALL"},"query":"query(        $search: SearchInput        $limit:Int        $page: Int        $translationType: VaildTranslationTypeEnumType        $countryOrigin: VaildCountryOriginEnumType    ) {    shows(        search: $search        limit: $limit        page: $page        translationType: $translationType        countryOrigin: $countryOrigin    ) {        edges {            _id name availableEpisodes __typename       }    }}"}' | sed 's|Show|\n|g' | sed -nE 's|.*_id":"([^"]*)","name":"([^"]*)".*sub":([1-9][^,]*).*|\1\t\2 (\3 episodes)|p')
             [ -z "$response" ] && exit 1
+            trace_log "allanime search candidates=$(printf "%s\n" "$response" | wc -l | tr -d ' ')"
             # if it is only one line long, then auto select it
             if [ "$(printf "%s\n" "$response" | wc -l)" -eq 1 ]; then
                 send_notification "Jerry" "" "" "Since there is only one result, it was automatically selected"
@@ -1069,9 +1080,18 @@ get_episode_info() {
                 choice=$(printf "%s" "$response" | launcher "Choose anime: " 2)
             fi
             [ -z "$choice" ] && exit 1
+            trace_log "allanime selected='$(printf "%s" "$choice" | cut -f2)'"
             title=$(printf "%s" "$choice" | cut -f2 | sed -E 's| \([0-9]* episodes\)||')
             allanime_id=$(printf "%s" "$choice" | cut -f1)
+            selected_available_episodes=$(printf "%s" "$choice" | sed -nE 's|.*\(([0-9]+) episodes\).*|\1|p')
             episode_number=$((progress + 1))
+            if [ "$mode_choice" = "Airing Today (Anime)" ] && [ -n "$selected_available_episodes" ] && [ "$episode_number" -gt "$selected_available_episodes" ] 2>/dev/null; then
+                trace_log "airing-today clamp requested_episode=$episode_number to available=$selected_available_episodes"
+                episode_number=$selected_available_episodes
+                progress=$((episode_number - 1))
+                send_notification "Jerry" "" "" "Using latest available episode: $episode_number"
+            fi
+            trace_log "allanime chosen_id=$allanime_id selected_available_episodes=${selected_available_episodes:-unknown} requested_episode=$episode_number"
             episode_info=$(printf "%s\t%s" "$allanime_id" "$title")
             ;;
         aniwatch)
@@ -1141,18 +1161,22 @@ get_episode_info() {
 extract_from_json() {
     case "$provider" in
         allanime)
-            resp=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*sourceUrl":"--([^"]*)".*sourceName":"([^"]*)".*|\2 :\1|p')
+            normalized_json=$(printf "%s" "$json_data" | sed 's|\\u002F|\/|g;s|\\u003A|:|g;s|\\u003D|=|g;s|\\u0026|\&|g;s|\\||g')
+            resp=$(printf "%s" "$normalized_json" | tr '{}' '\n' | sed -nE 's|.*sourceUrl":"--([^"]*)".*sourceName":"([^"]*)".*|\2 :\1|p')
+            # Some newer Allanime payloads include direct source URLs instead of encoded provider markers.
+            direct_links=$(printf "%s" "$normalized_json" | tr '{}' '\n' | sed -nE 's|.*"sourceUrl":"(https?://[^"]+)".*"priority":([0-9.]+).*|\2 >\1|p;s|.*"priority":([0-9.]+).*"sourceUrl":"(https?://[^"]+)".*|\1 >\2|p' | sort -u)
             # generate links into sequential files
             cache_dir="$(mktemp -d)"
             link_providers="1 2 3 4 5 6"
             for link_provider in $link_providers; do
                 generate_links "$link_provider" >"$cache_dir"/"$link_provider" &
             done
+            [ -n "$direct_links" ] && printf "%s\n" "$direct_links" >"$cache_dir/direct"
             # extract direct Yt-mp4 URL (pre-signed with Authorization token in the API response)
-            yt_direct=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*"sourceUrl":"(https://tools\.fast4speed\.rsvp[^"]*)".*|\1|p')
+            yt_direct=$(printf "%s" "$normalized_json" | tr '{}' '\n' | sed -nE 's|.*"sourceUrl":"(https://tools\.fast4speed\.rsvp[^"]*)".*|\1|p')
             [ -n "$yt_direct" ] && printf "Mp4 >%s\n" "$yt_direct" >"$cache_dir/yt_direct"
             # extract Mp4upload source as fallback when internal CDN sources are unavailable
-            mp4upload_url=$(printf "%s" "$json_data" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*"sourceUrl":"(https://mp4upload[^"]*)".*|\1|p' | head -1)
+            mp4upload_url=$(printf "%s" "$normalized_json" | tr '{}' '\n' | sed -nE 's|.*"sourceUrl":"(https://mp4upload[^"]*)".*|\1|p' | head -1)
             [ -n "$mp4upload_url" ] && {
                 mp4_direct=$(curl --max-time 15 -sLk "$mp4upload_url" -A "$agent" -e "$allanime_refr" | sed -nE 's|.*src: "([^"]*)"[[:space:]]*|\1|p' | head -1)
                 [ -n "$mp4_direct" ] && printf "Mp4 >%s\n" "$mp4_direct" >"$cache_dir/mp4upload"
@@ -1305,17 +1329,21 @@ get_json() {
             api_url="${allanime_api}/api?variables=${encoded_vars}&extensions=${encoded_ext}"
 
             json_data="$(curl -e "$allanime_refr" -s -A "$agent" -H "Origin: https://youtu-chan.com" "$api_url")"
+            trace_log "allanime persisted-query returned_bytes=$(printf "%s" "$json_data" | wc -c | tr -d ' ') has_tobeparsed=$(printf "%s" "$json_data" | grep -q "tobeparsed" && echo yes || echo no)"
 
             if [ -z "$json_data" ] || ! printf "%s" "$json_data" | grep -q "tobeparsed"; then
+                trace_log "allanime falling back to POST /api endpoint"
                 json_data=$(curl -s -X POST "https://api.$allanime_base/api" \
                     -H "User-Agent: Mozilla/5.0" \
                     -H "Content-Type: application/json" \
                     -H "Origin: https://allanime.to" \
                     --data-raw '{"variables":{"showId":"'"$episode_id"'","translationType":"'"$translation_type"'","episodeString":"'"$episode_number"'"},"query":"query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) {    episode(        showId: $showId        translationType: $translationType        episodeString: $episodeString    ) {        episodeString sourceUrls    }}"}')
+                trace_log "allanime fallback returned_bytes=$(printf "%s" "$json_data" | wc -c | tr -d ' ')"
             fi
             if printf "%s" "$json_data" | grep -q '"tobeparsed"'; then
                 blob="$(printf "%s" "$json_data" | sed -nE 's|.*"tobeparsed":"([^"]*)".*|\1|p')"
                 json_data="$(decode_tobeparsed "$blob")"
+                trace_log "allanime decoded payload bytes=$(printf "%s" "$json_data" | wc -c | tr -d ' ')"
             fi
             ;;
         aniwatch)
@@ -1372,7 +1400,13 @@ get_json() {
     esac
 
     if printf "%s" "$json_data" | grep -q '"episode":null'; then
-        send_notification "Jerry" "" "" "Episode not available yet"
+        trace_log "episode null from provider=$provider title='$title' requested_episode=$episode_number available_sub=${selected_available_episodes:-unknown}"
+        trace_log "episode null payload=$(printf "%s" "$json_data" | tr '\n' ' ' | sed -n '1,1p')"
+        if [ -n "$selected_available_episodes" ]; then
+            send_notification "Jerry" "" "" "Episode $episode_number not available yet (available: $selected_available_episodes)"
+        else
+            send_notification "Jerry" "" "" "Episode not available yet"
+        fi
         exit 0
     fi
     [ -n "$json_data" ] && extract_from_json
@@ -1496,6 +1530,7 @@ play_video() {
     esac
     case $player in
         debug)
+            send_notification "Jerry" "" "" "Debug mode: printing resolved links only (no playback)"
             printf "Video link:\n%s\n" "$video_link"
             [ -n "$subs_links" ] && printf "Subtitles:\n%s\n" "$subs_links"
             return
@@ -1616,6 +1651,7 @@ watch_anime() {
 
     get_json
     if [ -z "$video_link" ]; then
+        trace_log "no playable link provider=$provider title='$title' episode=${episode_number:-$((progress + 1))}"
         _jerry_exit_msg="Could not get video for: $title"
         send_notification "Error" "4000" "" "Could not get video for: $title"
         exit 1
@@ -1654,6 +1690,7 @@ watch_anime_choice() {
         send_notification "Jerry" "" "" "Error, no anime found"
         exit 1
     fi
+    trace_log "selected anime media_id=$media_id title='$title' progress=$progress episodes_total=$episodes_total"
     # Let the user pick the starting episode on first selection.
     # Skip when: -n/--number was used, binge auto-advance (media_id was already set), or no_anilist (handled in search_anime_anilist).
     if [ -n "$_newly_selected" ] && [ -z "$using_number" ] && [ -z "$no_anilist" ]; then
@@ -1684,6 +1721,7 @@ watch_anime_choice() {
         fi
     fi
     send_notification "Loading" "3000" "$images_cache_dir/$media_id.jpg" "$title"
+    trace_log "loading anime title='$title' start_episode=$((progress + 1)) provider=$provider translation=${translation_type:-unset}"
     watch_anime
     [ "$score_on_completion" = true ] && update_score "ANIME" "immediate"
 }
@@ -1771,6 +1809,7 @@ binge() {
 }
 
 main() {
+    trace_log "main start no_anilist=${no_anilist:-false} query='${query:-}' provider=${provider:-unset}"
     if [ -z "$no_anilist" ]; then
         check_credentials
         if [ -z "$access_token" ] || [ -z "$user_id" ]; then
@@ -1784,6 +1823,7 @@ main() {
         [ -n "$query" ] && mode_choice="Watch Anime"
         [ -z "$mode_choice" ] && mode_choice=$(printf "Resume from History\nWatch Anime" | launcher "Choose an option: ")
     fi
+    trace_log "mode_choice='$mode_choice'"
     case "$mode_choice" in
         "Watch Anime") binge "ANIME" ;;
         "Read Manga") binge "MANGA" ;;
@@ -1906,6 +1946,10 @@ while [ $# -gt 0 ]; do
         -j | --json)
             json_output=true
             no_anilist=1
+            shift
+            ;;
+        --trace)
+            trace_enabled=true
             shift
             ;;
         -l | --language)
