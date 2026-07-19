@@ -69,6 +69,21 @@ if [ "$use_external_menu" = true ]; then
     dep_ch "rofi" || true
 fi
 
+botan_exe=""
+botan_gcm_cmd=""
+if command -v botan3 >/dev/null 2>&1; then
+    botan_exe="botan3"
+elif command -v botan >/dev/null 2>&1; then
+    botan_exe="botan"
+fi
+if [ -n "$botan_exe" ]; then
+    if "$botan_exe" has_command cipher >/dev/null 2>&1; then
+        botan_gcm_cmd="cipher"
+    elif "$botan_exe" has_command encryption >/dev/null 2>&1; then
+        botan_gcm_cmd="encryption"
+    fi
+fi
+
 usage() {
     printf "
   Usage: %s [options] [query]
@@ -242,7 +257,7 @@ get_links() {
     printf "\033[1;32m%s\033[0m Links Fetched\n" "$provider_name" 1>&2
 }
 
-# initialises provider_name and provider_id. First argument is the provider name, 2nd is the regex that matches that provider's link
+# initializes provider_name and provider_id. First argument is the provider name, 2nd is the regex that matches that provider's link
 provider_init() {
     provider_name=$1
     provider_id=$(printf "%s" "$resp" | sed -n "$2" | head -1 | cut -d':' -f2 | sed 's/../&\n/g' | sed 's/^79$/A/g;s/^7a$/B/g;s/^7b$/C/g;s/^7c$/D/g;s/^7d$/E/g;s/^7e$/F/g;s/^7f$/G/g;s/^70$/H/g;s/^71$/I/g;s/^72$/J/g;s/^73$/K/g;s/^74$/L/g;s/^75$/M/g;s/^76$/N/g;s/^77$/O/g;s/^68$/P/g;s/^69$/Q/g;s/^6a$/R/g;s/^6b$/S/g;s/^6c$/T/g;s/^6d$/U/g;s/^6e$/V/g;s/^6f$/W/g;s/^60$/X/g;s/^61$/Y/g;s/^62$/Z/g;s/^59$/a/g;s/^5a$/b/g;s/^5b$/c/g;s/^5c$/d/g;s/^5d$/e/g;s/^5e$/f/g;s/^5f$/g/g;s/^50$/h/g;s/^51$/i/g;s/^52$/j/g;s/^53$/k/g;s/^54$/l/g;s/^55$/m/g;s/^56$/n/g;s/^57$/o/g;s/^48$/p/g;s/^49$/q/g;s/^4a$/r/g;s/^4b$/s/g;s/^4c$/t/g;s/^4d$/u/g;s/^4e$/v/g;s/^4f$/w/g;s/^40$/x/g;s/^41$/y/g;s/^42$/z/g;s/^08$/0/g;s/^09$/1/g;s/^0a$/2/g;s/^0b$/3/g;s/^0c$/4/g;s/^0d$/5/g;s/^0e$/6/g;s/^0f$/7/g;s/^00$/8/g;s/^01$/9/g;s/^15$/-/g;s/^16$/./g;s/^67$/_/g;s/^46$/~/g;s/^02$/:/g;s/^17$/\//g;s/^07$/?/g;s/^1b$/#/g;s/^63$/\[/g;s/^65$/\]/g;s/^78$/@/g;s/^19$/!/g;s/^1c$/$/g;s/^1e$/&/g;s/^10$/\(/g;s/^11$/\)/g;s/^12$/*/g;s/^13$/+/g;s/^14$/,/g;s/^03$/;/g;s/^05$/=/g;s/^1d$/%/g' | tr -d '\n' | sed "s/\/clock/\/clock\.json/")
@@ -666,7 +681,8 @@ get_recently_updated_manga() {
         raw_data=$(curl -s -X POST "https://api.$allanime_base/api" \
             -H "User-Agent: Mozilla/5.0" \
             -H "Content-Type: application/json" \
-            -H "Origin: https://allanime.to" \
+            -H "Origin: $allanime_refr" \
+            -H "x-build-id: $allanime_build_id" \
             --data-raw '{"variables":{"search":{"sortBy":"Latest_Update","allowAdult":'"$allow_adult"',"allowUnknown":false},"limit":50,"page":'"$api_page"'},"query":"query($search: SearchInput, $limit: Int, $page: Int) { mangas(search: $search, limit: $limit, page: $page) { edges { name aniListId availableChapters } } }"}')
         parsed=$(printf "%s" "$raw_data" \
             | sed 's/},{"name"/\n{"name"/g' \
@@ -1063,14 +1079,35 @@ get_anilist_info() {
 get_episode_info() {
     case "$provider" in
         allanime)
+            allanime_search() {
+                curl -s -X POST "https://api.$allanime_base/api" \
+                    -H "User-Agent: Mozilla/5.0" \
+                    -H "Content-Type: application/json" \
+                    -H "Origin: $allanime_refr" \
+                    -H "x-build-id: $allanime_build_id" \
+                    --data-raw '{"variables":{"search":{"allowAdult":false,"allowUnknown":false,"query":"'"$1"'"},"limit":40,"page":1,"translationType":"sub","countryOrigin":"ALL"},"query":"query(        $search: SearchInput        $limit:Int        $page: Int        $translationType: VaildTranslationTypeEnumType        $countryOrigin: VaildCountryOriginEnumType    ) {    shows(        search: $search        limit: $limit        page: $page        translationType: $translationType        countryOrigin: $countryOrigin    ) {        edges {            _id name availableEpisodes __typename       }    }}"}' | sed 's|Show|\n|g' | sed -nE 's|.*_id":"([^"]*)","name":"([^"]*)".*sub":([1-9][^,]*).*|\1\t\2 (\3 episodes)|p'
+            }
             query_title=$(printf "%s" "$title" | tr ' ' '+')
             trace_log "allanime search title='$title' query='$query_title' requested_episode=$((progress + 1))"
-            response=$(curl -s -X POST "https://api.$allanime_base/api" \
-                -H "User-Agent: Mozilla/5.0" \
-                -H "Content-Type: application/json" \
-                -H "Origin: https://allanime.to" \
-                --data-raw '{"variables":{"search":{"allowAdult":false,"allowUnknown":false,"query":"'"$query_title"'"},"limit":40,"page":1,"translationType":"sub","countryOrigin":"ALL"},"query":"query(        $search: SearchInput        $limit:Int        $page: Int        $translationType: VaildTranslationTypeEnumType        $countryOrigin: VaildCountryOriginEnumType    ) {    shows(        search: $search        limit: $limit        page: $page        translationType: $translationType        countryOrigin: $countryOrigin    ) {        edges {            _id name availableEpisodes __typename       }    }}"}' | sed 's|Show|\n|g' | sed -nE 's|.*_id":"([^"]*)","name":"([^"]*)".*sub":([1-9][^,]*).*|\1\t\2 (\3 episodes)|p')
-            [ -z "$response" ] && exit 1
+            response=$(allanime_search "$query_title")
+            if [ -z "$response" ]; then
+                # AllAnime's search matches on exact whole words, so a title from AniList that
+                # differs slightly (hyphenation, spacing, season numbering) can return nothing.
+                # Retry with just the words before the first colon, or the first 3 words.
+                if printf "%s" "$query_title" | grep -q ':'; then
+                    fallback_query=$(printf "%s" "$query_title" | cut -d':' -f1)
+                else
+                    fallback_query=$(printf "%s" "$query_title" | tr '+' '\n' | head -3 | tr '\n' '+' | sed 's/+$//')
+                fi
+                if [ -n "$fallback_query" ] && [ "$fallback_query" != "$query_title" ]; then
+                    trace_log "allanime search empty, retrying with fallback_query='$fallback_query'"
+                    response=$(allanime_search "$fallback_query")
+                fi
+            fi
+            if [ -z "$response" ]; then
+                send_notification "Error" "3000" "" "Could not find \"$title\" on AllAnime"
+                exit 1
+            fi
             trace_log "allanime search candidates=$(printf "%s\n" "$response" | wc -l | tr -d ' ')"
             # if it is only one line long, then auto select it
             if [ "$(printf "%s\n" "$response" | wc -l)" -eq 1 ]; then
@@ -1276,6 +1313,30 @@ decode_tobeparsed() {
     printf '%s' "$plain"
 }
 
+get_aa_req() {
+    if [ -z "$botan_exe" ] || [ -z "$botan_gcm_cmd" ]; then
+        printf ''
+        return
+    fi
+    ts="$(($(date +%s) / 300 * 300 * 1000))"
+    payload_iv="$allanime_epoch:$allanime_build_id:$allanime_query_hash:$ts"
+    payload="{\"v\":1,\"ts\":$ts,\"epoch\":$allanime_epoch,\"buildId\":\"$allanime_build_id\",\"qh\":\"$allanime_query_hash\"}"
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" EXIT INT
+    printf '%s' "$payload_iv" | openssl dgst -sha256 -binary | dd bs=1 count=12 of="$tmpdir/iv.bin" 2>/dev/null
+    iv_hex="$(od -An -t x1 "$tmpdir/iv.bin" | tr -d ' \n')"
+    case "$botan_gcm_cmd" in
+        cipher)
+            printf "%s" "$payload" | "$botan_exe" cipher --cipher=AES-256/GCM --key="$allanime_key" --nonce="$iv_hex" - >"$tmpdir/gcm_out.bin" 2>/dev/null
+            ;;
+        encryption)
+            printf "%s" "$payload" | "$botan_exe" encryption --mode=aes-256-gcm --key="$allanime_key" --iv="$iv_hex" >"$tmpdir/gcm_out.bin" 2>/dev/null
+            ;;
+    esac
+    (printf '\001'; cat "$tmpdir/iv.bin" "$tmpdir/gcm_out.bin") | base64 -w 0
+    rm -rf "$tmpdir"
+}
+
 b64url_to_hex() {
     _len=$(printf '%s' "$1" | wc -c | tr -d ' ')
     _mod=$(($_len % 4))
@@ -1319,16 +1380,12 @@ get_json() {
         allanime)
             episode_embed_gql='query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}'
 
-            query_hash="d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
+            allanime_query_hash="d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
             query_vars="{\"showId\":\"$episode_id\",\"translationType\":\"$translation_type\",\"episodeString\":\"$episode_number\"}"
-            query_ext="{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"$query_hash\"}}"
+            aa_req="$(get_aa_req)"
+            query_ext="{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"$allanime_query_hash\"},\"aaReq\":\"$aa_req\"}"
 
-            encoded_vars=$(printf '%s' "$query_vars" | sed 's/"/%22/g; s/:/%3A/g; s/{/%7B/g; s/}/%7D/g; s/,/%2C/g')
-            encoded_ext=$(printf '%s' "$query_ext" | sed 's/"/%22/g; s/:/%3A/g; s/{/%7B/g; s/}/%7D/g; s/,/%2C/g; s/ /%20/g')
-
-            api_url="${allanime_api}/api?variables=${encoded_vars}&extensions=${encoded_ext}"
-
-            json_data="$(curl -e "$allanime_refr" -s -A "$agent" -H "Origin: https://youtu-chan.com" "$api_url")"
+            json_data="$(curl -e "$allanime_refr" -sG -A "$agent" -H "Origin: $allanime_refr" -H "x-build-id: $allanime_build_id" "${allanime_api}/api" --data-urlencode "variables=$query_vars" --data-urlencode "extensions=$query_ext")"
             trace_log "allanime persisted-query returned_bytes=$(printf "%s" "$json_data" | wc -c | tr -d ' ') has_tobeparsed=$(printf "%s" "$json_data" | grep -q "tobeparsed" && echo yes || echo no)"
 
             if [ -z "$json_data" ] || ! printf "%s" "$json_data" | grep -q "tobeparsed"; then
@@ -1336,7 +1393,8 @@ get_json() {
                 json_data=$(curl -s -X POST "https://api.$allanime_base/api" \
                     -H "User-Agent: Mozilla/5.0" \
                     -H "Content-Type: application/json" \
-                    -H "Origin: https://allanime.to" \
+                    -H "Origin: $allanime_refr" \
+                    -H "x-build-id: $allanime_build_id" \
                     --data-raw '{"variables":{"showId":"'"$episode_id"'","translationType":"'"$translation_type"'","episodeString":"'"$episode_number"'"},"query":"query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) {    episode(        showId: $showId        translationType: $translationType        episodeString: $episodeString    ) {        episodeString sourceUrls    }}"}')
                 trace_log "allanime fallback returned_bytes=$(printf "%s" "$json_data" | wc -c | tr -d ' ')"
             fi
@@ -1417,12 +1475,15 @@ get_chapter_info() {
     case "$manga_provider" in
         allanime)
             [ -z "$allanime_base" ] && allanime_base="allanime.day"
-            [ -z "$allanime_key" ] && allanime_key="$(printf '%s' 'Xot36i3lK3:v1' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
+            [ -z "$allanime_key" ] && allanime_key="cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359"
+            [ -z "$allanime_epoch" ] && allanime_epoch=4130
+            [ -z "$allanime_build_id" ] && allanime_build_id=41
             _query=$(printf "%s" "$title" | tr ' ' '+')
             _response=$(curl -s -X POST "https://api.$allanime_base/api" \
                 -H "User-Agent: Mozilla/5.0" \
                 -H "Content-Type: application/json" \
-                -H "Origin: https://allanime.to" \
+                -H "Origin: $allanime_refr" \
+                -H "x-build-id: $allanime_build_id" \
                 --data-raw '{"variables":{"search":{"allowAdult":true,"allowUnknown":true,"query":"'"$_query"'"},"limit":20,"page":1},"query":"query($search: SearchInput, $limit: Int, $page: Int) { mangas(search: $search, limit: $limit, page: $page) { edges { _id aniListId } } }"}')
             allanime_manga_id=$(printf "%s" "$_response" | tr '{}' '\n' | sed -nE 's|.*"_id":"([^"]*)".*"aniListId":"'"$media_id"'".*|\1|p' | head -1)
             [ -z "$allanime_manga_id" ] && return
@@ -1440,13 +1501,18 @@ get_manga_json() {
     case "$manga_provider" in
         allanime)
             [ -z "$allanime_base" ] && allanime_base="allanime.day"
-            [ -z "$allanime_key" ] && allanime_key="$(printf '%s' 'Xot36i3lK3:v1' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
+            [ -z "$allanime_key" ] && allanime_key="cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359"
+            [ -z "$allanime_epoch" ] && allanime_epoch=4130
+            [ -z "$allanime_build_id" ] && allanime_build_id=41
             _chapter_str="$((progress + 1))"
+            allanime_query_hash="d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
+            aa_req="$(get_aa_req)"
             _enc_resp=$(curl -s -X POST "https://api.$allanime_base/api" \
                 -H "User-Agent: Mozilla/5.0" \
                 -H "Content-Type: application/json" \
-                -H "Origin: https://allanime.to" \
-                --data-raw '{"variables":{"mangaId":"'"$chapter_id"'","chapterString":"'"$_chapter_str"'","translationType":"sub"},"query":"query($mangaId: String!, $chapterString: String!, $translationType: VaildTranslationTypeMangaEnumType!) { chapterPages(mangaId: $mangaId, chapterString: $chapterString, translationType: $translationType) { edges { pictureUrls pictureUrlHead chapterString } } }"}' \
+                -H "Origin: $allanime_refr" \
+                -H "x-build-id: $allanime_build_id" \
+                --data-raw '{"variables":{"mangaId":"'"$chapter_id"'","chapterString":"'"$_chapter_str"'","translationType":"sub"},"extensions":{"persistedQuery":{"version":1,"sha256Hash":"'"$allanime_query_hash"'"},"aaReq":"'"$aa_req"'"},"query":"query($mangaId: String!, $chapterString: String!, $translationType: VaildTranslationTypeMangaEnumType!) { chapterPages(mangaId: $mangaId, chapterString: $chapterString, translationType: $translationType) { edges { pictureUrls pictureUrlHead chapterString } } }"}' \
                 | sed -nE 's|.*"tobeparsed":"([^"]*)".*|\1|p')
             if [ -z "$_enc_resp" ]; then
                 send_notification "Jerry" "3000" "" "Episode not available yet"
@@ -1765,7 +1831,12 @@ read_manga_choice() {
 binge() {
     while :; do
         if [ "$1" = "ANIME" ]; then
+            _progress_before_episode="$progress"
             watch_anime_choice
+            if [ "$mode_choice" = "Airing Today (Anime)" ] && [ "$progress" -lt "$_progress_before_episode" ] 2>/dev/null; then
+                send_notification "Jerry" "" "" "No new episode released yet — you're caught up through episode $((progress + 1))"
+                break
+            fi
             [ -z "$percentage_progress" ] || [ "$percentage_progress" -lt 85 ] && break
             [ $((progress + 1)) -eq "$episodes_total" ] && break
             [ -n "$range_end" ] && [ "$((progress + 1))" -ge "$range_end" ] && break
@@ -2049,10 +2120,12 @@ done
 query="$(printf "%s" "$query" | tr ' ' '-' | $sed "s/^-//g")"
 case "$provider" in
     allanime)
-        allanime_refr="https://allmanga.to"
+        allanime_refr="https://youtu-chan.com"
         allanime_base="allanime.day"
         allanime_api="https://api.allanime.day"
-        allanime_key="$(printf '%s' 'Xot36i3lK3:v1' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
+        allanime_key="cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359"
+        allanime_epoch=4130
+        allanime_build_id=41
         agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
         ;;
     zoro | kaido | aniwatch) provider="aniwatch" ;;
