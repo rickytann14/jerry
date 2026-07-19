@@ -1123,10 +1123,11 @@ get_episode_info() {
             selected_available_episodes=$(printf "%s" "$choice" | sed -nE 's|.*\(([0-9]+) episodes\).*|\1|p')
             episode_number=$((progress + 1))
             if [ "$mode_choice" = "Airing Today (Anime)" ] && [ -n "$selected_available_episodes" ] && [ "$episode_number" -gt "$selected_available_episodes" ] 2>/dev/null; then
-                trace_log "airing-today clamp requested_episode=$episode_number to available=$selected_available_episodes"
-                episode_number=$selected_available_episodes
-                progress=$((episode_number - 1))
-                send_notification "Jerry" "" "" "Using latest available episode: $episode_number"
+                # requested_episode > available can only happen when available <= progress,
+                # i.e. there is no new episode to watch — never play a re-fetch of one already seen.
+                trace_log "airing-today clamp requested_episode=$episode_number to available=$selected_available_episodes, no new episode"
+                no_new_episode_yet=true
+                return
             fi
             trace_log "allanime chosen_id=$allanime_id selected_available_episodes=${selected_available_episodes:-unknown} requested_episode=$episode_number"
             episode_info=$(printf "%s\t%s" "$allanime_id" "$title")
@@ -1700,7 +1701,13 @@ watch_anime() {
         esac
     fi
 
+    no_new_episode_yet=""
     get_episode_info
+
+    if [ -n "$no_new_episode_yet" ]; then
+        send_notification "Jerry" "" "" "No new episode released yet — you're caught up through episode $progress"
+        return
+    fi
 
     if [ -z "$episode_info" ]; then
         send_notification "Error" "" "" "$title not found"
@@ -1831,12 +1838,8 @@ read_manga_choice() {
 binge() {
     while :; do
         if [ "$1" = "ANIME" ]; then
-            _progress_before_episode="$progress"
             watch_anime_choice
-            if [ "$mode_choice" = "Airing Today (Anime)" ] && [ "$progress" -lt "$_progress_before_episode" ] 2>/dev/null; then
-                send_notification "Jerry" "" "" "No new episode released yet — you're caught up through episode $((progress + 1))"
-                break
-            fi
+            [ -n "$no_new_episode_yet" ] && break
             [ -z "$percentage_progress" ] || [ "$percentage_progress" -lt 85 ] && break
             [ $((progress + 1)) -eq "$episodes_total" ] && break
             [ -n "$range_end" ] && [ "$((progress + 1))" -ge "$range_end" ] && break
@@ -1864,7 +1867,9 @@ binge() {
     # Notify what happened after binge ends
     if [ -n "$title" ]; then
         if [ "$1" = "ANIME" ]; then
-            if [ "$episodes_total" != "9999" ] && [ $((progress + 1)) -ge "$episodes_total" ] 2>/dev/null; then
+            if [ -n "$no_new_episode_yet" ]; then
+                _jerry_exit_msg="Caught up: $title — Ep $progress"
+            elif [ "$episodes_total" != "9999" ] && [ $((progress + 1)) -ge "$episodes_total" ] 2>/dev/null; then
                 _jerry_exit_msg="Completed: $title"
             else
                 _jerry_exit_msg="Stopped: $title — Ep $((progress + 1))"
